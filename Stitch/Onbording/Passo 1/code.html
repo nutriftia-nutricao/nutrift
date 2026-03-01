@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#3DA63A",
+                        "primary-light": "#7DC95E",
+                        "background-nutrift": "#F5F5F0",
+                        "nutrift-title": "#1A1A1A",
+                        "nutrift-subtitle": "#757575",
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        :root {
+            --gradient-start: #7DC95E;
+            --gradient-end: #3DA63A;
+        }
+        .gradient-progress {
+            background: linear-gradient(90deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+        }
+        .gradient-button {
+            background: linear-gradient(180deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+        }
+        .ios-shadow {
+            box-shadow: 0 8px 20px 0 rgba(61, 166, 58, 0.25);
+        }
+        body {
+            background-color: #F5F5F0;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-display text-[#1A1A1A] min-h-screen flex justify-center">
+<div class="w-full max-w-[430px] min-h-screen flex flex-col relative bg-[#F5F5F0]">
+<div class="w-full h-[4px] bg-slate-200 overflow-hidden">
+<div class="h-full gradient-progress" style="width: 14.28%;"></div>
+</div>
+<div class="px-6 pt-6 flex items-center justify-between">
+<button class="w-[36px] h-[36px] flex items-center justify-center rounded-full bg-white shadow-sm border border-slate-100 active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px] text-slate-900">arrow_back</span>
+</button>
+<div class="flex flex-col items-end gap-0.5">
+<div class="w-6 h-[2px] bg-primary rounded-full"></div>
+<div class="w-4 h-[2px] bg-primary/30 rounded-full"></div>
+</div>
+</div>
+<main class="flex-1 px-6 pt-8">
+<h1 class="text-[24px] font-[500] text-[#1A1A1A] leading-tight mb-2">Vamos começar!</h1>
+<p class="text-[14px] font-[400] text-[#757575] leading-relaxed mb-10">
+                Preencha seus dados básicos para personalizarmos sua experiência de nutrição.
+            </p>
+<div class="space-y-8">
+<div class="flex flex-col gap-2">
+<label class="text-[11px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Nome Completo</label>
+<div class="relative">
+<input class="w-full h-14 px-5 rounded-2xl border-none focus:ring-2 focus:ring-primary-light bg-white text-[#1A1A1A] placeholder:text-slate-400 transition-all duration-200 shadow-sm" placeholder="Como você quer ser chamado?" type="text"/>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 text-primary-light/60">
+<span class="material-symbols-outlined">person</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-3">
+<label class="text-[11px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Sexo Biológico</label>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border-2 border-transparent transition-all cursor-pointer hover:border-slate-100 shadow-sm group">
+<div class="w-12 h-12 flex items-center justify-center bg-slate-50 rounded-full mb-3 group-hover:bg-slate-100 transition-colors">
+<span class="material-symbols-outlined text-slate-400 text-3xl">male</span>
+</div>
+<span class="font-bold text-slate-500">Masculino</span>
+</div>
+<div class="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border-2 border-primary-light transition-all cursor-pointer relative shadow-sm">
+<div class="absolute top-3 right-3">
+<span class="material-symbols-outlined text-primary text-xl font-bold">check_circle</span>
+</div>
+<div class="w-12 h-12 flex items-center justify-center bg-green-50 rounded-full mb-3">
+<span class="material-symbols-outlined text-primary text-3xl">female</span>
+</div>
+<span class="font-bold text-primary">Feminino</span>
+</div>
+</div>
+<p class="text-[11px] text-slate-400 text-center mt-2 px-4 leading-relaxed italic">
+                        Usamos essa informação para calcular suas necessidades metabólicas com mais precisão.
+                    </p>
+</div>
+</div>
+</main>
+<footer class="p-6 pb-12">
+<button class="w-full h-[56px] gradient-button ios-shadow rounded-[100px] flex items-center justify-center text-white font-[600] text-[17px] active:scale-[0.98] transition-transform">
+                Continuar
+            </button>
+</footer>
+</div>
+
+</body></html>

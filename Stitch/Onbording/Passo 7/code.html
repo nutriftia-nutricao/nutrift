@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nutrift Passo Final - Detalhado</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#7DC95E",
+                        "primary-dark": "#3DA63A",
+                        "background-bege": "#F5F5F0",
+                        "border-light": "#EBEBEB",
+                        "text-dark": "#1A1A1A",
+                        "text-gray": "#757575",
+                    },
+                    fontFamily: {
+                        "sans": ["Manrope", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer utilities {
+            .bg-nutrift-gradient {
+                background: linear-gradient(to bottom, #7DC95E, #3DA63A);
+            }
+            .shadow-green-soft {
+                box-shadow: 0 10px 25px -5px rgba(125, 201, 94, 0.3);
+            }
+        }
+        body {
+            font-family: 'Manrope', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            background-color: #F5F5F0;
+        }
+    </style>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="text-slate-900 min-h-screen flex flex-col bg-[#F5F5F0]">
+<div class="fixed top-0 left-0 right-0 z-[60] h-[4px] w-full bg-[#EBEBEB]">
+<div class="h-full bg-nutrift-gradient w-full"></div>
+</div>
+<header class="sticky top-[4px] z-50 px-6 py-4 flex items-center justify-between bg-[#F5F5F0]/80 backdrop-blur-md">
+<button class="flex items-center justify-center w-[36px] h-[36px] min-w-[36px] rounded-full bg-white shadow-sm border border-[#EBEBEB]">
+<span class="material-symbols-outlined text-[#1A1A1A] text-[20px]">chevron_left</span>
+</button>
+<div class="text-right">
+<p class="text-[11px] font-[700] text-[#7DC95E] uppercase tracking-wider leading-none">CONCLUÍDO</p>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto px-6 pt-6 pb-32">
+<div class="text-center mb-8">
+<div class="inline-flex items-center justify-center size-16 bg-white rounded-full mb-6 border border-[#EBEBEB] shadow-sm">
+<span class="material-symbols-outlined text-[#7DC95E] text-3xl" style="font-variation-settings: 'FILL' 1">celebration</span>
+</div>
+<h1 class="text-[26px] font-[700] text-[#1A1A1A] leading-tight mb-2">Seu plano está pronto!</h1>
+<p class="text-[#757575] text-[14px] font-[400] px-4">Personalizamos cada detalhe para você atingir seu objetivo com saúde.</p>
+</div>
+<div class="bg-white rounded-[24px] border border-[#EBEBEB] mb-6 overflow-hidden">
+<div class="p-5">
+<h3 class="text-[13px] font-bold text-[#1A1A1A] mb-4 flex items-center gap-2">🔥 Como calculamos seu plano</h3>
+<div class="flex items-center justify-between py-3">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-[#BDBDBD] tracking-wider">TAXA BASAL</span>
+<span class="text-[11px] text-[#BDBDBD]">Calorias em repouso</span>
+</div>
+<span class="text-[17px] font-[700] text-[#1A1A1A]">1.820 kcal</span>
+</div>
+<div class="h-[1px] bg-[#F5F5F0] w-full"></div>
+<div class="flex items-center justify-between py-3">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-[#BDBDBD] tracking-wider">GASTO TOTAL</span>
+<span class="text-[11px] text-[#BDBDBD]">Com seu nível de atividade</span>
+</div>
+<span class="text-[17px] font-[700] text-[#1A1A1A]">2.600 kcal</span>
+</div>
+<div class="h-[1px] bg-[#F5F5F0] w-full mb-3"></div>
+<div class="bg-[#E8F5E9] rounded-[10px] p-4 flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-[#3DA63A] tracking-wider">SUA META</span>
+<span class="text-[11px] text-[#757575]">Para atingir seu objetivo</span>
+</div>
+<span class="text-[22px] font-[800] text-[#3DA63A]">2.100 kcal</span>
+</div>
+</div>
+</div>
+<div class="bg-[#E8F5E9] rounded-[24px] border-2 border-[#7DC95E] p-6 mb-6 relative overflow-hidden">
+<div class="flex items-center gap-4 mb-6">
+<div class="size-12 rounded-xl bg-nutrift-gradient flex items-center justify-center text-white shadow-lg shadow-[#7DC95E]/20">
+<span class="material-symbols-outlined text-2xl">track_changes</span>
+</div>
+<div>
+<h3 class="text-[10px] font-bold text-[#757575] uppercase tracking-[0.1em]">Meta Diária</h3>
+<p class="text-3xl font-black text-[#1A1A1A]">2.100 <span class="text-lg font-bold text-[#757575]">kcal</span></p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 pt-5 border-t border-[#7DC95E]/20">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-[#757575] uppercase tracking-wider mb-1">Previsão de Meta</span>
+<span class="text-lg font-bold text-[#3DA63A]">18 de maio</span>
+</div>
+<div class="flex flex-col border-l border-[#7DC95E]/20 pl-4">
+<span class="text-[10px] font-bold text-[#757575] uppercase tracking-wider mb-1">Foco Semanal</span>
+<span class="text-lg font-bold text-[#1A1A1A]">-0.5 kg</span>
+</div>
+</div>
+<div class="mt-5 pt-5 border-t border-[rgba(255,255,255,0.4)] flex justify-center">
+<div class="bg-white px-4 py-2 rounded-full flex items-center justify-center shadow-sm">
+<span class="text-[13px] font-[500] text-[#757575]">⏱ 12 semanas seguindo o plano</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-3 mb-6">
+<div class="bg-white p-4 rounded-2xl border border-[#EBEBEB] flex flex-col items-center">
+<div class="bg-orange-50 p-1.5 rounded-full mb-2">
+<span class="material-symbols-outlined text-orange-500 text-lg">restaurant</span>
+</div>
+<span class="text-[10px] font-bold text-[#757575] uppercase mb-1">Carbs</span>
+<span class="text-base font-bold text-[#1A1A1A]">262g</span>
+<div class="mt-2 w-1/2 h-[3px] bg-[#FFA726] rounded-[100px]"></div>
+</div>
+<div class="bg-white p-4 rounded-2xl border border-[#EBEBEB] flex flex-col items-center">
+<div class="bg-red-50 p-1.5 rounded-full mb-2">
+<span class="material-symbols-outlined text-red-500 text-lg">fitness_center</span>
+</div>
+<span class="text-[10px] font-bold text-[#757575] uppercase mb-1">Prot</span>
+<span class="text-base font-bold text-[#1A1A1A]">158g</span>
+<div class="mt-2 w-1/2 h-[3px] bg-[#EF5350] rounded-[100px]"></div>
+</div>
+<div class="bg-white p-4 rounded-2xl border border-[#EBEBEB] flex flex-col items-center">
+<div class="bg-green-50 p-1.5 rounded-full mb-2">
+<span class="material-symbols-outlined text-[#7DC95E] text-lg">opacity</span>
+</div>
+<span class="text-[10px] font-bold text-[#757575] uppercase mb-1">Gord</span>
+<span class="text-base font-bold text-[#1A1A1A]">58g</span>
+<div class="mt-2 w-1/2 h-[3px] bg-[#7DC95E] rounded-[100px]"></div>
+</div>
+</div>
+<div class="bg-white rounded-2xl p-5 border border-[#EBEBEB] flex gap-4 items-start">
+<div class="bg-[#7DC95E]/10 p-2 rounded-full shrink-0">
+<span class="material-symbols-outlined text-[#3DA63A]" style="font-variation-settings: 'FILL' 1">verified</span>
+</div>
+<div>
+<h4 class="font-bold text-[#1A1A1A] text-sm">Estratégia Nutrift</h4>
+<p class="text-xs text-[#757575] leading-relaxed mt-1">Este plano foi calculado com base no seu nível de atividade física e preferência por dieta equilibrada.</p>
+</div>
+</div>
+</main>
+<div class="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-[#F5F5F0] via-[#F5F5F0] to-transparent pt-12">
+<button class="w-full h-[56px] bg-nutrift-gradient text-white font-[600] text-[17px] rounded-[100px] shadow-green-soft transition-transform active:scale-95 flex items-center justify-center gap-2">
+            Começar agora
+            <span class="material-symbols-outlined font-bold text-[20px]">arrow_forward</span>
+</button>
+</div>
+
+</body></html>

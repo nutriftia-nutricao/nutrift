@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html class="light" lang="pt-br"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nutrift Home - Fundo Padronizado</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#3DA63A",
+                        "primary-dark": "#2d6c51",
+                        "accent-green": "#7DC95E",
+                        "accent-yellow": "#F0D88A",
+                        "background-light": "#F5F5F0",
+                        "background-dark": "#151d1a",
+                        "inactive-gray": "#BDBDBD",
+                        "macro-p": "#EF4444",
+                        "macro-c": "#F97316",
+                        "macro-g": "#22C55E"
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        body {
+            font-family: 'Manrope', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            background-color: #F5F5F0;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .bg-gradient-premium {
+            background: linear-gradient(180deg, #7DC95E 0%, #3DA63A 100%);
+        }
+        .bg-gradient-horizontal {
+            background: linear-gradient(90deg, #7DC95E 0%, #3DA63A 100%);
+        }
+        .nav-shadow {
+            box-shadow: 0 -4px 20px -5px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#F5F5F0] dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex flex-col max-w-md mx-auto relative overflow-x-hidden">
+<header class="flex items-center justify-between px-6 pt-8 pb-4">
+<div class="flex items-center gap-3">
+<div class="size-10 rounded-full bg-[#2d6c51] flex items-center justify-center text-white font-bold text-sm">
+                FL
+            </div>
+<div>
+<p class="text-xs text-slate-500 font-medium">Bom dia,</p>
+<h1 class="text-lg font-bold leading-tight">Fernando</h1>
+</div>
+</div>
+<button class="relative p-2 rounded-full hover:bg-slate-200/50 transition-colors">
+<span class="material-symbols-outlined text-slate-700">notifications</span>
+<span class="absolute top-2 right-2 size-2.5 bg-red-500 border-2 border-[#F5F5F0] rounded-full"></span>
+</button>
+</header>
+<div class="px-6 space-y-4">
+<div class="relative flex items-center">
+<div class="absolute left-4 text-slate-400">
+<span class="material-symbols-outlined text-xl">search</span>
+</div>
+<input class="w-full bg-white border-none rounded-full py-3 pl-12 pr-14 shadow-sm focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400 text-sm" placeholder="Pesquisar alimentos ou receitas" type="text"/>
+<button class="absolute right-2 bg-gradient-premium text-white p-2 rounded-full flex items-center justify-center shadow-md">
+<span class="material-symbols-outlined text-xl">auto_awesome</span>
+</button>
+</div>
+<div class="inline-flex items-center gap-2 bg-[#FFF8E8] border border-[#F0D88A]/30 px-3 py-1.5 rounded-full">
+<span class="material-symbols-outlined text-[#2d6c51] text-lg" style="font-variation-settings: 'FILL' 1">local_fire_department</span>
+<span class="text-xs font-bold text-[#2d6c51]">5 dias em sequência</span>
+</div>
+</div>
+<div class="px-6 mt-6">
+<div class="bg-white rounded-xl p-5 shadow-sm space-y-4">
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-2xl font-extrabold text-slate-900">750 <span class="text-sm font-medium text-slate-500">kcal consumidas</span></h2>
+<p class="text-xs text-slate-400">Meta diária: 2.000 kcal</p>
+</div>
+<div class="text-right">
+<span class="text-sm font-bold text-primary">35%</span>
+</div>
+</div>
+<div class="relative h-3 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="absolute top-0 left-0 h-full bg-gradient-horizontal rounded-full" style="width: 35%"></div>
+<div class="absolute top-0 left-[35%] -translate-x-1/2 h-full w-1 bg-primary rounded-full shadow-sm"></div>
+</div>
+<div class="grid grid-cols-3 gap-4 pt-2 border-t border-slate-50">
+<div class="space-y-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="material-symbols-outlined text-xs text-macro-p">egg_alt</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Proteína</span>
+</div>
+<p class="text-sm font-bold">45g <span class="text-[10px] font-normal text-slate-400">/ 120g</span></p>
+<div class="h-1 w-full bg-slate-100 rounded-full">
+<div class="h-full bg-macro-p rounded-full" style="width: 38%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="material-symbols-outlined text-xs text-macro-c">bakery_dining</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Carbos</span>
+</div>
+<p class="text-sm font-bold">92g <span class="text-[10px] font-normal text-slate-400">/ 250g</span></p>
+<div class="h-1 w-full bg-slate-100 rounded-full">
+<div class="h-full bg-macro-c rounded-full" style="width: 36%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="material-symbols-outlined text-xs text-macro-g">opacity</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gordura</span>
+</div>
+<p class="text-sm font-bold">22g <span class="text-[10px] font-normal text-slate-400">/ 65g</span></p>
+<div class="h-1 w-full bg-slate-100 rounded-full">
+<div class="h-full bg-macro-g rounded-full" style="width: 33%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 px-6 mt-4">
+<div class="bg-white rounded-xl p-4 shadow-sm relative overflow-hidden">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-primary/10 rounded-lg">
+<span class="material-symbols-outlined text-primary">steps</span>
+</div>
+<button class="bg-primary text-white size-6 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">add</span>
+</button>
+</div>
+<h3 class="text-xs font-medium text-slate-500">Atividade</h3>
+<p class="text-lg font-bold">4.250 <span class="text-xs font-normal">passos</span></p>
+</div>
+<div class="bg-white rounded-xl p-4 shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-blue-50 rounded-lg">
+<span class="material-symbols-outlined text-blue-500">water_drop</span>
+</div>
+<div class="flex gap-1">
+<button class="bg-slate-100 text-slate-600 size-6 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-sm text-primary">remove</span>
+</button>
+<button class="bg-primary text-white size-6 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">add</span>
+</button>
+</div>
+</div>
+<h3 class="text-xs font-medium text-slate-500">Hidratação</h3>
+<p class="text-lg font-bold">1.2 <span class="text-xs font-normal">L</span></p>
+</div>
+</div>
+<div class="px-6 mt-4">
+<div class="bg-white rounded-xl p-4 shadow-sm space-y-3 relative">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<h3 class="text-xs font-medium text-slate-500">Peso Atual</h3>
+<span class="text-lg font-black text-slate-900 leading-tight">75,4 kg</span>
+</div>
+<button class="bg-primary text-white size-6 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">add</span>
+</button>
+</div>
+<div class="relative h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-r from-accent-yellow via-accent-green to-primary opacity-80"></div>
+<div class="absolute top-0 left-[60%] w-0.5 h-full bg-white"></div>
+</div>
+<div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
+<span>Início (82kg)</span>
+<span>Meta (70kg)</span>
+</div>
+</div>
+</div>
+<div class="mt-8 px-6 pb-32">
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold">Refeições</h2>
+<div class="flex bg-slate-200/50 p-1 rounded-full">
+<button class="px-4 py-1 text-xs font-bold bg-white rounded-full shadow-sm">Hoje</button>
+<button class="px-4 py-1 text-xs font-bold text-slate-500">Semana</button>
+</div>
+</div>
+<div class="space-y-3">
+<div class="bg-white rounded-xl p-4 border-l-4 border-accent-green shadow-sm flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-accent-green font-bold">check_circle</span>
+<div>
+<h4 class="text-sm font-bold">Café da Manhã</h4>
+<p class="text-xs text-slate-400">07:30 • 320 kcal</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-slate-300">expand_more</span>
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden ring-1 ring-primary/10">
+<div class="p-4 flex items-center justify-between border-b border-slate-50">
+<div class="flex items-center gap-3">
+<div class="size-6 rounded-full border-2 border-slate-200"></div>
+<div>
+<h4 class="text-sm font-bold">Lanche da Tarde</h4>
+<p class="text-xs text-slate-400">Planejado para 16:00</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary">expand_less</span>
+</div>
+<div class="bg-slate-50/50 p-4 space-y-4">
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">icecream</span>
+</div>
+<div>
+<p class="text-xs font-bold text-slate-700">Iogurte grego desnatado <span class="text-slate-300 font-normal">·</span> 85 kcal</p>
+<p class="text-[10px] font-medium flex gap-2 mt-0.5">
+<span class="text-macro-p">P: 15g</span>
+<span class="text-macro-c">C: 6g</span>
+<span class="text-macro-g">G: 0g</span>
+</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-[10px] text-slate-400">1 uni • 150g</p>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">grain</span>
+</div>
+<div>
+<p class="text-xs font-bold text-slate-700">Granola artesanal <span class="text-slate-300 font-normal">·</span> 125 kcal</p>
+<p class="text-[10px] font-medium flex gap-2 mt-0.5">
+<span class="text-macro-p">P: 4g</span>
+<span class="text-macro-c">C: 18g</span>
+<span class="text-macro-g">G: 5g</span>
+</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-[10px] text-slate-400">30g</p>
+</div>
+</div>
+<button class="w-full mt-2 py-3 bg-gradient-premium text-white rounded-lg text-xs font-bold shadow-lg shadow-green-200/50">
+                        Confirmar Refeição
+                    </button>
+</div>
+</div>
+</div>
+</div>
+<nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-slate-100 flex items-center justify-around py-3 z-50 nav-shadow">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined text-[26px]" style="font-variation-settings: 'FILL' 1">home</span>
+<span class="text-[10px] font-bold">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-inactive-gray" href="#">
+<span class="material-symbols-outlined text-[26px]">analytics</span>
+<span class="text-[10px] font-bold">Progresso</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-inactive-gray" href="#">
+<span class="material-symbols-outlined text-[26px]">auto_awesome</span>
+<span class="text-[10px] font-bold">AI</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-inactive-gray" href="#">
+<span class="material-symbols-outlined text-[26px]">person</span>
+<span class="text-[10px] font-bold">Perfil</span>
+</a>
+</nav>
+
+</body></html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#3ea63a",
+                        "background-light": "#f5f5f0",
+                        "background-dark": "#141e14",
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Manrope', sans-serif; }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
+<!-- Header Section -->
+<header class="sticky top-0 z-50 glass-effect border-b border-primary/10 px-4 py-4 flex items-center justify-between">
+<button class="flex items-center justify-center size-10 rounded-full bg-white shadow-sm border border-slate-100 text-slate-700">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<h1 class="text-lg font-bold tracking-tight text-slate-900">Editar Lanche</h1>
+<button class="text-primary font-bold text-base px-2">Salvar</button>
+</header>
+<main class="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+<!-- Search Bar -->
+<div class="relative group">
+<div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="w-full bg-white border-none rounded-xl py-4 pl-12 pr-12 shadow-sm focus:ring-2 focus:ring-primary/20 text-sm font-medium" placeholder="Adicionar alimento..." type="text"/>
+<button class="absolute inset-y-0 right-4 flex items-center text-primary">
+<span class="material-symbols-outlined text-[20px]">mic</span>
+</button>
+</div>
+<!-- Food List Card -->
+<div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+<div class="p-4 border-b border-slate-50">
+<h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider">Itens na Refeição</h2>
+</div>
+<!-- Item: Iogurte -->
+<div class="flex items-center gap-4 p-4 border-b border-slate-50">
+<button class="text-red-400 bg-red-50 rounded-full size-8 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<div class="flex-1 min-w-0">
+<p class="text-base font-semibold text-slate-800 truncate">Iogurte Natural</p>
+<div class="flex items-center gap-1 mt-1">
+<span class="text-sm text-slate-500 font-medium">150g</span>
+<span class="material-symbols-outlined text-slate-400 text-[14px]">expand_more</span>
+</div>
+</div>
+<div class="text-slate-300 cursor-grab active:cursor-grabbing">
+<span class="material-symbols-outlined">drag_indicator</span>
+</div>
+</div>
+<!-- Item: Granola -->
+<div class="flex items-center gap-4 p-4 border-b border-slate-50">
+<button class="text-red-400 bg-red-50 rounded-full size-8 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<div class="flex-1 min-w-0">
+<p class="text-base font-semibold text-slate-800 truncate">Granola Caseira</p>
+<div class="flex items-center gap-1 mt-1">
+<span class="text-sm text-slate-500 font-medium">30g</span>
+<span class="material-symbols-outlined text-slate-400 text-[14px]">expand_more</span>
+</div>
+</div>
+<div class="text-slate-300 cursor-grab active:cursor-grabbing">
+<span class="material-symbols-outlined">drag_indicator</span>
+</div>
+</div>
+<!-- Item: Banana -->
+<div class="flex items-center gap-4 p-4">
+<button class="text-red-400 bg-red-50 rounded-full size-8 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<div class="flex-1 min-w-0">
+<p class="text-base font-semibold text-slate-800 truncate">Banana Prata</p>
+<div class="flex items-center gap-1 mt-1">
+<span class="text-sm text-slate-500 font-medium">1 un (80g)</span>
+<span class="material-symbols-outlined text-slate-400 text-[14px]">expand_more</span>
+</div>
+</div>
+<div class="text-slate-300 cursor-grab active:cursor-grabbing">
+<span class="material-symbols-outlined">drag_indicator</span>
+</div>
+</div>
+</div>
+<!-- Real-time Summary Card -->
+<div class="bg-white rounded-xl p-5 shadow-sm border border-slate-100 space-y-4">
+<div class="flex items-baseline justify-between">
+<p class="text-slate-500 text-sm font-medium">Impacto na Dieta</p>
+<p class="text-slate-900 font-extrabold text-xl">297 <span class="text-sm font-normal text-slate-400">kcal</span></p>
+</div>
+<div class="grid grid-cols-3 gap-4">
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-bold text-slate-400">
+<span>P: 19g</span>
+<span>25%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-blue-400" style="width: 25%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-bold text-slate-400">
+<span>C: 51g</span>
+<span>60%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-orange-400" style="width: 60%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-bold text-slate-400">
+<span>G: 4g</span>
+<span>15%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-yellow-400" style="width: 15%"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="h-24"></div> <!-- Spacer for fixed footer -->
+</main>
+<!-- Bottom Action Bar -->
+<div class="fixed bottom-0 left-0 right-0 p-4 pb-8 glass-effect border-t border-primary/10">
+<button class="w-full bg-gradient-to-r from-primary to-[#4bbd47] text-white font-bold py-4 rounded-full shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-transform active:scale-[0.98]">
+<span>Confirmar Alterações</span>
+</button>
+</div>
+<!-- Bottom Navigation Component Replacement (Simulated for Context) -->
+<nav class="hidden">
+<!-- Replaced by the specialized edit UI per request, but keeping the structure concept -->
+</nav>
+</body></html>

@@ -2,9 +2,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { addDays, format, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -19,14 +20,18 @@ import { Colors } from "../constants/colors";
 import { Radius } from "../constants/radius";
 import { Spacing } from "../constants/spacing";
 import { Typography } from "../constants/typography";
+import { useIsPro } from "../hooks/useUserPlan";
+import { useWeeklyPlanStore } from "../stores/useWeeklyPlanStore";
+import { useUserStore } from "../stores/useUserStore";
+import { useOnboardingStore } from "../stores/useOnboardingStore";
+import { generateWeeklyPlan } from "../services/weeklyPlan";
+import { getSimilarFoodSuggestions, type SubstitutePreferences } from "../services/gemini";
 import type { MealType } from "../types/nutrition";
 import { MEAL_TYPE_LABELS } from "../types/nutrition";
-import { useWeeklyPlanStore } from "../stores/useWeeklyPlanStore";
-import { useOnboardingStore } from "../stores/useOnboardingStore";
-import { getSimilarFoodSuggestions, type SubstitutePreferences } from "../services/gemini";
+import type { PlannedFood, PlannedMeal } from "../stores/useWeeklyPlanStore";
 
 // Mesmo conjunto de imagens da tela Hoje (assets locais). Fallback para tipos futuros.
-const MEAL_IMAGES: Record<MealType, any> = {
+const MEAL_IMAGES: Record<MealType, number> = {
   cafe: require("../assets/images/meals/meal-cafe.png"),
   lanche_manha: require("../assets/images/meals/meal-lanche-manha.png"),
   almoco: require("../assets/images/meals/meal-almoco.png"),
@@ -37,90 +42,6 @@ const MEAL_IMAGES: Record<MealType, any> = {
   extra: require("../assets/images/meals/meal-extra.png"),
 };
 
-interface FoodItem {
-  id: string;
-  name: string;
-  quantity_g: number; // gramas
-  prepTime: number | null; // minutos
-  kcal: number;
-  carbo_g: number;
-  protein_g: number;
-  fat_g: number;
-  checked: boolean; // se o alimento foi consumido
-}
-
-interface MealPlan {
-  type: MealType;
-  label: string;
-  emoji: string; // emoji representativo da refeição
-  time: string; // horário sugerido
-  totalKcal: number;
-  kcalRange: string; // ex: "488 - 536 kcal"
-  foods: FoodItem[];
-}
-
-/** Dados mock do plano semanal (será substituído por geração IA). */
-function getMockMealPlans(): MealPlan[] {
-  return [
-    {
-      type: "cafe",
-      label: MEAL_TYPE_LABELS.cafe,
-      emoji: "☕",
-      time: "08:30",
-      totalKcal: 420,
-      kcalRange: "488 - 536 kcal",
-      foods: [
-        { id: "1", name: "Ovos Mexidos", quantity_g: 100, prepTime: 10, kcal: 140, carbo_g: 1, protein_g: 12, fat_g: 10, checked: true },
-        { id: "2", name: "Abacate", quantity_g: 80, prepTime: null, kcal: 160, carbo_g: 8, protein_g: 2, fat_g: 15, checked: true },
-        { id: "3", name: "Pão Integral", quantity_g: 50, prepTime: null, kcal: 120, carbo_g: 22, protein_g: 4, fat_g: 2, checked: true },
-      ],
-    },
-    {
-      type: "almoco",
-      label: MEAL_TYPE_LABELS.almoco,
-      emoji: "🍽️",
-      time: "12:30",
-      totalKcal: 650,
-      kcalRange: "650 - 720 kcal",
-      foods: [
-        { id: "4", name: "Arroz Integral", quantity_g: 150, prepTime: 30, kcal: 215, carbo_g: 45, protein_g: 5, fat_g: 2, checked: false },
-        { id: "5", name: "Frango Grelhado", quantity_g: 120, prepTime: 25, kcal: 165, carbo_g: 0, protein_g: 31, fat_g: 4, checked: false },
-        { id: "6", name: "Feijão Preto", quantity_g: 100, prepTime: null, kcal: 130, carbo_g: 23, protein_g: 8, fat_g: 1, checked: false },
-        { id: "7", name: "Salada Verde", quantity_g: 80, prepTime: 5, kcal: 40, carbo_g: 8, protein_g: 2, fat_g: 0, checked: false },
-        { id: "8", name: "Azeite", quantity_g: 10, prepTime: null, kcal: 100, carbo_g: 0, protein_g: 0, fat_g: 11, checked: false },
-      ],
-    },
-    {
-      type: "lanche",
-      label: MEAL_TYPE_LABELS.lanche,
-      emoji: "🥤",
-      time: "16:00",
-      totalKcal: 200,
-      kcalRange: "180 - 220 kcal",
-      foods: [
-        { id: "9", name: "Iogurte Natural", quantity_g: 150, prepTime: null, kcal: 120, carbo_g: 12, protein_g: 10, fat_g: 3, checked: false },
-        { id: "10", name: "Granola", quantity_g: 30, prepTime: null, kcal: 80, carbo_g: 15, protein_g: 2, fat_g: 2, checked: false },
-      ],
-    },
-    {
-      type: "jantar",
-      label: MEAL_TYPE_LABELS.jantar,
-      emoji: "🌙",
-      time: "20:00",
-      totalKcal: 550,
-      kcalRange: "520 - 580 kcal",
-      foods: [
-        { id: "11", name: "Salmão Assado", quantity_g: 150, prepTime: 20, kcal: 200, carbo_g: 0, protein_g: 20, fat_g: 13, checked: false },
-        { id: "12", name: "Batata Doce", quantity_g: 100, prepTime: 20, kcal: 86, carbo_g: 20, protein_g: 2, fat_g: 0, checked: false },
-        { id: "13", name: "Brócolis no Vapor", quantity_g: 80, prepTime: 10, kcal: 55, carbo_g: 11, protein_g: 4, fat_g: 1, checked: false },
-        { id: "14", name: "Salada de Tomate", quantity_g: 60, prepTime: 5, kcal: 30, carbo_g: 7, protein_g: 1, fat_g: 0, checked: false },
-        { id: "15", name: "Azeite", quantity_g: 10, prepTime: null, kcal: 100, carbo_g: 0, protein_g: 0, fat_g: 11, checked: false },
-        { id: "16", name: "Suco Verde", quantity_g: 200, prepTime: 5, kcal: 79, carbo_g: 18, protein_g: 2, fat_g: 0, checked: false },
-      ],
-    },
-  ];
-}
-
 function replacingKey(mealType: MealType, foodId: string) {
   return `${mealType}|${foodId}`;
 }
@@ -128,12 +49,58 @@ function replacingKey(mealType: MealType, foodId: string) {
 export default function PlanoSemanalScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedMeal, setExpandedMeal] = useState<MealType | null>(null);
-  const [meals, setMeals] = useState<MealPlan[]>(getMockMealPlans());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [replacingFood, setReplacingFood] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const user = useUserStore((s) => s.user);
+  const isPro = useIsPro();
   const weeklyPlanStore = useWeeklyPlanStore();
   const { diet_type, restrictions, liked_foods } = useOnboardingStore();
   const dateISO = selectedDate.toISOString().slice(0, 10);
+
+  const weekStart = useMemo(
+    () => startOfWeek(selectedDate, { weekStartsOn: 1 }),
+    [selectedDate]
+  );
+  const weekStartISO = format(weekStart, "yyyy-MM-dd");
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart]
+  );
+  const monthYearLabel = useMemo(() => {
+    const str = format(weekStart, "MMMM yyyy", { locale: ptBR });
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }, [weekStart]);
+
+  const daysRemaining = useMemo(() => {
+    if (!user?.last_plan_generated_at) return 0;
+    const lastGen = new Date(user.last_plan_generated_at);
+    const daysSince = Math.floor((Date.now() - lastGen.getTime()) / 86400000);
+    return daysSince < 7 ? 7 - daysSince : 0;
+  }, [user?.last_plan_generated_at]);
+
+  useEffect(() => {
+    if (user?.id) {
+      weeklyPlanStore.loadWeeklyPlan(user.id, weekStartISO);
+    }
+  }, [user?.id, weekStartISO]);
+
+  const plans = useWeeklyPlanStore((s) => s.plans);
+  const getPlansForDate = useWeeklyPlanStore((s) => s.getPlansForDate);
+  const plannedMeals = useMemo(
+    () => getPlansForDate(dateISO),
+    [dateISO, plans, getPlansForDate]
+  );
+  const filteredMeals = useMemo(
+    () =>
+      plannedMeals.filter(
+        (m) =>
+          MEAL_TYPE_LABELS[m.type]?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.foods.some((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      ),
+    [plannedMeals, searchQuery]
+  );
 
   const substitutePreferences: SubstitutePreferences = useMemo(
     () => ({
@@ -144,54 +111,38 @@ export default function PlanoSemanalScreen() {
     [diet_type, restrictions, liked_foods]
   );
 
-  const weekStart = useMemo(
-    () => startOfWeek(selectedDate, { weekStartsOn: 1 }),
-    [selectedDate]
-  );
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart]
-  );
-  const monthYearLabel = useMemo(() => {
-    const str = format(weekStart, "MMMM yyyy", { locale: ptBR });
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  }, [weekStart]);
-
-  const filteredMeals = meals.filter((m) =>
-    m.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.foods.some((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
   const toggleMeal = (mealType: MealType) => {
     setExpandedMeal((prev) => (prev === mealType ? null : mealType));
   };
 
   const toggleFoodCheck = (mealType: MealType, foodId: string) => {
-    const dateISO = selectedDate.toISOString().slice(0, 10);
-    // Atualiza o store global (usado na tela Hoje)
     weeklyPlanStore.toggleFoodCheck(dateISO, mealType, foodId);
-    // Mantém estado local em sincronia para este screen
-    setMeals((prev) =>
-      prev.map((meal) => {
-        if (meal.type === mealType) {
-          return {
-            ...meal,
-            foods: meal.foods.map((food) =>
-              food.id === foodId ? { ...food, checked: !food.checked } : food
-            ),
-          };
-        }
-        return meal;
-      })
-    );
   };
 
-  const isMealComplete = (meal: MealPlan) => {
-    return meal.foods.length > 0 && meal.foods.every((f) => f.checked);
-  };
+  const handleGeneratePlan = useCallback(async () => {
+    if (!user?.id || generating) return;
+    setGenerating(true);
+    try {
+      const result = await generateWeeklyPlan(user.id);
+      if (!result.data?.success) {
+        const msg =
+          result.data?.error === "cooldown" || result.data?.days_remaining != null
+            ? `Aguarde ${result.data.days_remaining ?? 0} dias para gerar novamente.`
+            : result.data?.error ?? "Não foi possível gerar o plano. Tente novamente.";
+        Alert.alert("Aviso", msg);
+        return;
+      }
+      await weeklyPlanStore.loadWeeklyPlan(user.id, weekStartISO);
+      Alert.alert("Pronto!", "Seu plano foi gerado com sucesso.");
+    } catch {
+      Alert.alert("Erro", "Não foi possível gerar o plano. Verifique sua conexão.");
+    } finally {
+      setGenerating(false);
+    }
+  }, [user?.id, generating, weekStartISO, weeklyPlanStore]);
 
   const handleReplaceWithAi = useCallback(
-    async (meal: MealPlan, food: FoodItem) => {
+    async (meal: PlannedMeal, food: PlannedFood) => {
       const key = replacingKey(meal.type, food.id);
       setReplacingFood(key);
       const TIMEOUT_MS = 15000;
@@ -227,29 +178,8 @@ export default function PlanoSemanalScreen() {
           carbo_g: first.carbo_g,
           fat_g: first.fat_g,
         });
-        setMeals((prev) =>
-          prev.map((m) => {
-            if (m.type !== meal.type) return m;
-            return {
-              ...m,
-              foods: m.foods.map((f) =>
-                f.id === food.id
-                  ? {
-                      ...f,
-                      name: first.name,
-                      quantity_g: first.quantity_g,
-                      kcal: first.kcal,
-                      protein_g: first.protein_g,
-                      carbo_g: first.carbo_g,
-                      fat_g: first.fat_g,
-                    }
-                  : f
-              ),
-            };
-          })
-        );
       } catch {
-        // timeout ou erro de rede: fallback da API já retorna mock; aqui só garante fim do loading
+        // timeout ou erro de rede
       } finally {
         setReplacingFood(null);
       }
@@ -337,7 +267,58 @@ export default function PlanoSemanalScreen() {
         </View>
       </View>
 
+      {/* Gerar plano (Pro) — mostrar apenas se não está loading */}
+      {weeklyPlanStore.status !== "loading" && (
+        <View style={styles.generateSection}>
+          {isPro ? (
+            <>
+              {daysRemaining > 0 ? (
+                <View style={styles.cooldownCard}>
+                  <Ionicons name="time-outline" size={20} color={Colors.textSecondary} />
+                  <Text style={styles.cooldownText}>
+                    Próxima geração disponível em {daysRemaining} {daysRemaining === 1 ? "dia" : "dias"}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.generateBtn,
+                    pressed && { opacity: 0.8 },
+                    generating && { opacity: 0.6 },
+                  ]}
+                  onPress={handleGeneratePlan}
+                  disabled={generating}
+                >
+                  {generating ? (
+                    <ActivityIndicator size="small" color={Colors.textInverse} />
+                  ) : (
+                    <Ionicons name="sparkles" size={18} color={Colors.textInverse} />
+                  )}
+                  <Text style={styles.generateBtnText}>
+                    {generating ? "Gerando seu plano..." : "Gerar plano com IA"}
+                  </Text>
+                </Pressable>
+              )}
+            </>
+          ) : (
+            <Pressable
+              style={styles.upgradeCard}
+              onPress={() => router.push("/perfil/assinatura")}
+            >
+              <Ionicons name="lock-closed-outline" size={18} color={Colors.primary} />
+              <Text style={styles.upgradeText}>Faça upgrade para Pro para gerar seu plano</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
       {/* Lista de refeições */}
+      {weeklyPlanStore.status === "loading" ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Carregando plano...</Text>
+        </View>
+      ) : (
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -345,9 +326,9 @@ export default function PlanoSemanalScreen() {
       >
         {filteredMeals.map((meal) => {
           const isExpanded = expandedMeal === meal.type;
-          const isComplete = isMealComplete(meal);
+          const mealLabel = MEAL_TYPE_LABELS[meal.type] ?? meal.type;
           return (
-            <View key={meal.type} style={styles.mealCard}>
+            <View key={`${meal.type}-${meal.date}`} style={styles.mealCard}>
               {/* Header da refeição (sempre visível) */}
               <Pressable
                 style={({ pressed }) => [
@@ -364,7 +345,7 @@ export default function PlanoSemanalScreen() {
                     />
                   </View>
                   <View style={styles.mealInfo}>
-                    <Text style={styles.mealName}>{meal.label}</Text>
+                    <Text style={styles.mealName}>{mealLabel}</Text>
                     <Text style={styles.mealTime}>
                       {meal.time} • {meal.kcalRange}
                     </Text>
@@ -386,9 +367,17 @@ export default function PlanoSemanalScreen() {
                   {meal.foods.map((food) => (
                     <View key={food.id} style={styles.foodItem}>
                       <View style={styles.foodItemRow}>
-                        <View style={styles.foodContent}>
+                        <Pressable
+                          style={styles.foodContent}
+                          onPress={() => toggleFoodCheck(meal.type, food.id)}
+                        >
                           <View style={styles.foodItemTop}>
-                            <Text style={styles.foodItemName}>
+                            <Text
+                              style={[
+                                styles.foodItemName,
+                                food.checked && styles.foodItemNameChecked,
+                              ]}
+                            >
                               {food.name} • {food.quantity_g}g
                             </Text>
                             <Text style={styles.foodItemKcal}>{food.kcal} kcal</Text>
@@ -409,7 +398,7 @@ export default function PlanoSemanalScreen() {
                               <Text style={styles.foodMacroFat}>{food.fat_g}g</Text>
                             </Text>
                           </View>
-                        </View>
+                        </Pressable>
 
                         {/* Troca por IA em background (sem abrir tela) */}
                         {replacingFood === replacingKey(meal.type, food.id) ? (
@@ -438,11 +427,14 @@ export default function PlanoSemanalScreen() {
         {filteredMeals.length === 0 && (
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyText}>
-              Nenhuma refeição encontrada para "{searchQuery}"
+              {searchQuery
+                ? `Nenhuma refeição encontrada para "${searchQuery}"`
+                : "Nenhuma refeição no plano para este dia."}
             </Text>
           </View>
         )}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -511,6 +503,65 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
     backgroundColor: Colors.background,
+  },
+  generateSection: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  cooldownCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cooldownText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  generateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.lg,
+  },
+  generateBtnText: {
+    ...Typography.body,
+    fontWeight: "700",
+    color: Colors.textInverse,
+  },
+  upgradeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  upgradeText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  loadingText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
   },
   calendarMonthTitle: {
     ...Typography.h4,
@@ -662,6 +713,10 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Colors.text,
     flex: 1,
+  },
+  foodItemNameChecked: {
+    textDecorationLine: "line-through",
+    color: Colors.textDisabled,
   },
   foodItemKcal: {
     ...Typography.body,

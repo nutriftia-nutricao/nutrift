@@ -89,15 +89,23 @@ export default function RegisterScreen() {
       let profile = await fetchUserProfile(session.user.id);
       if (!profile) {
         const email = session.user.email ?? "";
-        const name =
+        const nameFromMetadata =
           session.user.user_metadata?.full_name ??
           session.user.user_metadata?.name ??
           session.user.user_metadata?.given_name ??
           "";
-        profile = await ensureUserProfile(session.user.id, email, name);
+        profile = await ensureUserProfile(session.user.id, email, nameFromMetadata);
       }
-      if (profile) setUser(profile);
-      router.replace("/(tabs)/");
+      if (profile) {
+        setUser(profile);
+      }
+      if (!profile?.onboarding_completed) {
+        setNameOnboarding(profile?.name ?? "");
+        router.replace("/(auth)/onboarding/step-1");
+      } else {
+        // Delega navegação final para o index.tsx
+        router.replace("/");
+      }
     } catch (e) {
       console.error("handleGoogleSignUp:", e);
       Alert.alert("Erro", "Não foi possível cadastrar com Google. Tente novamente.");
@@ -239,7 +247,7 @@ export default function RegisterScreen() {
                 style={styles.gradientButton}
               >
                 <Text style={styles.primaryButtonText}>Criar conta grátis</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                <Ionicons name="arrow-forward" size={18} color="rgba(52, 143, 213, 1)" />
               </LinearGradient>
             </Pressable>
 

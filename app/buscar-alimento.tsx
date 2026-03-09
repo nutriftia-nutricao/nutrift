@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +17,10 @@ import { Colors } from "../constants/colors";
 import { Radius } from "../constants/radius";
 import { Spacing } from "../constants/spacing";
 import { Typography } from "../constants/typography";
+import { addFoodLog } from "../services/nutrition";
+import { useNutritionStore } from "../stores/useNutritionStore";
+import { useUserStore } from "../stores/useUserStore";
+import type { MealType } from "../types/nutrition";
 
 interface TacoFood {
   id: string;
@@ -45,10 +50,21 @@ function getMockFavoriteFoods(): TacoFood[] {
   ];
 }
 
+const DEFAULT_QUANTITY_G = 100;
+
 export default function BuscarAlimentoScreen() {
+  const params = useLocalSearchParams<{ date?: string; mealType?: string }>();
+  const date = params.date ?? "";
+  const mealType = params.mealType as MealType | undefined;
+  const isAddToLogFlow = Boolean(date && mealType);
+
+  const user = useUserStore((s) => s.user);
+  const loadForDate = useNutritionStore((s) => s.loadForDate);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<TacoFood[]>([]);
+  const [adding, setAdding] = useState(false);
 
   const recentFoods = getMockRecentFoods();
   const favoriteFoods = getMockFavoriteFoods();
@@ -76,10 +92,36 @@ export default function BuscarAlimentoScreen() {
     }, 500);
   };
 
-  const handleSelectFood = (food: TacoFood) => {
-    // TODO: Retornar o alimento selecionado para a tela anterior
-    console.log("Alimento selecionado:", food.name);
-    router.back();
+  const handleSelectFood = async (food: TacoFood) => {
+    if (isAddToLogFlow && user?.id) {
+      setAdding(true);
+      const { error } = await addFoodLog(user.id, date, mealType!, {
+        food_id: null,
+        food_name: food.name,
+        quantity_g: DEFAULT_QUANTITY_G,
+        kcal: food.kcal,
+        protein_g: food.protein_g,
+        carbo_g: food.carbo_g,
+        fat_g: food.fat_g,
+      });
+      setAdding(false);
+      if (error) {
+        Alert.alert("Erro", "Não foi possível adicionar o alimento. Tente novamente.");
+        return;
+      }
+      await loadForDate(user.id, date);
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)/");
+      }
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/");
+    }
   };
 
   const renderFoodItem = (food: TacoFood, showCategory: boolean = false) => (
@@ -120,6 +162,12 @@ export default function BuscarAlimentoScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
+      {adding && (
+        <View style={styles.addingOverlay} pointerEvents="box-only">
+          <ActivityIndicator size="large" color={Colors.greenDark} />
+          <Text style={styles.addingText}>Adicionando…</Text>
+        </View>
+      )}
       {/* Header */}
       <View style={styles.header}>
         <Pressable
@@ -127,11 +175,20 @@ export default function BuscarAlimentoScreen() {
             styles.backButton,
             pressed && styles.pressed,
           ]}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/");
+            }
+          }}
+          disabled={adding}
         >
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Buscar Alimento</Text>
+        <Text style={styles.headerTitle}>
+          {isAddToLogFlow ? "Adicionar ao dia" : "Buscar Alimento"}
+        </Text>
         <View style={styles.backButton} />
       </View>
 
@@ -237,6 +294,18 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  addingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: Spacing.md,
+    zIndex: 10,
+  },
+  addingText: {
+    ...Typography.body,
+    color: Colors.text,
   },
   pressed: {
     opacity: 0.7,

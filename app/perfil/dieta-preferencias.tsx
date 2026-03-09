@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
+import { goBack } from "../../utils/navigation";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -33,7 +34,7 @@ export default function DietaPreferenciasScreen() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable style={styles.backBtn} onPress={() => goBack()}>
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Dieta e preferências</Text>
@@ -88,7 +89,7 @@ export default function DietaPreferenciasScreen() {
 
         <Pressable
           style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
-          onPress={() => { Alert.alert("Salvo!"); router.back(); }}
+          onPress={() => { Alert.alert("Salvo!"); goBack(); }}
         >
           <Text style={styles.saveBtnText}>Salvar preferências</Text>
         </Pressable>

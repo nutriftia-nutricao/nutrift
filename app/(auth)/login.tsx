@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,22 +17,43 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "../../constants/colors";
-import { getSession, signIn, signInWithGoogle } from "../../services/auth";
-import { ensureUserProfile, fetchUserProfile } from "../../services/user";
-import { useUserStore } from "../../stores/useUserStore";
 import { GradientColors } from "../../constants/gradients";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
+import { getSession, recoverSessionFromUrl, signIn, signInWithApple, signInWithGoogle, signUp } from "../../services/auth";
+import { ensureUserProfile, fetchUserProfile } from "../../services/user";
+import { useOnboardingStore } from "../../stores/useOnboardingStore";
+import { useUserStore } from "../../stores/useUserStore";
 
 export default function LoginScreen() {
+  const [isLogin, setIsLogin] = useState(true);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const [loadingApple, setLoadingApple] = useState(false);
 
   const setUser = useUserStore((s) => s.setUser);
+  const setOnboardingData = useOnboardingStore((s) => s.setData);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function tryOAuthReturn() {
+      if (Platform.OS !== "web" || typeof window === "undefined") return;
+      const hash = window.location.hash || "";
+      if (!hash.includes("access_token")) return;
+      await recoverSessionFromUrl();
+      if (cancelled) return;
+      const { data: { session } } = await getSession();
+      if (cancelled || !session?.user?.id) return;
+      await handleAuthSuccess(session.user.id, session.user.email ?? undefined, session.user.user_metadata as Record<string, string> | undefined);
+    }
+    tryOAuthReturn();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleGoogleSignIn = async () => {
     setLoadingGoogle(true);
@@ -41,26 +63,7 @@ export default function LoginScreen() {
         Alert.alert("Erro ao entrar com Google", error.message ?? "Tente novamente.");
         return;
       }
-      // Na web ocorre redirect; no app o Supabase volta com tokens e setSession já foi chamado
-      const {
-        data: { session },
-      } = await getSession();
-      if (!session?.user?.id) {
-        setLoadingGoogle(false);
-        return;
-      }
-      let profile = await fetchUserProfile(session.user.id);
-      if (!profile) {
-        const email = session.user.email ?? "";
-        const name =
-          session.user.user_metadata?.full_name ??
-          session.user.user_metadata?.name ??
-          session.user.user_metadata?.given_name ??
-          "";
-        profile = await ensureUserProfile(session.user.id, email, name);
-      }
-      if (profile) setUser(profile);
-      router.replace("/(tabs)/");
+      await checkSessionAndRedirect();
     } catch (e) {
       console.error("handleGoogleSignIn:", e);
       Alert.alert("Erro", "Não foi possível entrar com Google. Tente novamente.");
@@ -69,30 +72,122 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSignIn = async () => {
+  const handleAppleSignIn = async () => {
+    setLoadingApple(true);
+    try {
+      const { error } = await signInWithApple();
+      if (error) {
+        Alert.alert("Erro ao entrar com Apple", error.message ?? "Tente novamente.");
+        return;
+      }
+      await checkSessionAndRedirect();
+    } catch (e) {
+      console.error("handleAppleSignIn:", e);
+      Alert.alert("Erro", "Não foi possível entrar com Apple. Tente novamente.");
+    } finally {
+      setLoadingApple(false);
+    }
+  };
+
+  const checkSessionAndRedirect = async () => {
+    const { data: { session } } = await getSession();
+    if (session?.user?.id) {
+      await handleAuthSuccess(session.user.id, session.user.email, session.user.user_metadata);
+    }
+  };
+
+  const handleAuthSuccess = async (userId: string, userEmail?: string, metadata?: Record<string, string>) => {
+    try {
+      let profile = await fetchUserProfile(userId);
+
+      if (!profile) {
+        const profileName =
+          metadata?.full_name ??
+          metadata?.name ??
+          metadata?.given_name ??
+          name ??
+          "";
+        profile = await ensureUserProfile(userId, userEmail || "", profileName);
+      }
+
+      if (profile) {
+        setUser(profile);
+      }
+
+      // Só vai para a tela principal se o onboarding foi explicitamente concluído (step-9).
+      const onboardingCompleted = profile?.onboarding_completed === true;
+      const displayName = profile?.name ?? name ?? "";
+      setOnboardingData({ name: displayName });
+      if (!onboardingCompleted) {
+        router.replace("/(auth)/onboarding/step-1");
+      } else {
+        router.replace("/(tabs)/");
+      }
+    } catch (error) {
+      console.error("handleAuthSuccess error:", error);
+      setOnboardingData({ name });
+      router.replace("/(auth)/onboarding/step-1");
+    }
+  };
+
+  const handleSubmit = async () => {
     const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
+
     if (!trimmedEmail || !password) {
       Alert.alert("Campos obrigatórios", "Preencha e-mail e senha.");
       return;
     }
+
+    if (!isLogin && !trimmedName) {
+      Alert.alert("Campo obrigatório", "Preencha seu nome para continuar.");
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert("Senha fraca", "A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const { data, error } = await signIn(trimmedEmail, password);
-      if (error) {
-        Alert.alert("Erro ao entrar", error.message ?? "Verifique e-mail e senha.");
-        return;
+      if (isLogin) {
+        const { data, error } = await signIn(trimmedEmail, password);
+        if (error) {
+          const msg = error.message === "Invalid login credentials"
+            ? "E-mail ou senha incorretos."
+            : error.message;
+          Alert.alert("Erro ao entrar", msg);
+          return;
+        }
+        if (data.user?.id) {
+          await handleAuthSuccess(data.user.id, data.user.email, data.user.user_metadata);
+        }
+      } else {
+        const { userId, error, needsEmailConfirmation } = await signUp(trimmedEmail, password);
+
+        if (error) {
+          Alert.alert("Erro ao cadastrar", error.message);
+          return;
+        }
+
+        if (needsEmailConfirmation) {
+          Alert.alert(
+            "Confirme seu e-mail",
+            `Enviamos um link de confirmação para ${trimmedEmail}. Acesse seu e-mail, clique no link e volte para fazer login.`,
+            [{ text: "OK" }]
+          );
+          return;
+        }
+
+        if (userId) {
+          // Cadastro e login realizados — cria perfil e vai para onboarding
+          await handleAuthSuccess(userId, trimmedEmail, { name: trimmedName });
+        }
       }
-      const userId = data.user?.id;
-      if (!userId) {
-        Alert.alert("Erro", "Sessão inválida. Tente novamente.");
-        return;
-      }
-      const profile = await fetchUserProfile(userId);
-      if (profile) setUser(profile);
-      router.replace("/(tabs)/");
     } catch (e) {
-      console.error("handleSignIn:", e);
-      Alert.alert("Erro", "Não foi possível entrar. Tente novamente.");
+      console.error("handleSubmit:", e);
+      Alert.alert("Erro inesperado", "Ocorreu um erro. Verifique sua conexão e tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -111,14 +206,11 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={styles.logoSection}>
-            <LinearGradient
-              colors={GradientColors.primary}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.logoCircle}
-            >
-              <Text style={styles.logoLetter}>N</Text>
-            </LinearGradient>
+            <Image
+              source={require("../../assets/images/logo-nutrift.png")}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <Text style={styles.heroTitle}>Bem-vindo ao Nutrift</Text>
             <Text style={styles.heroSubtitle}>
               Nutrição inteligente para resultado real
@@ -127,20 +219,39 @@ export default function LoginScreen() {
 
           {/* Card */}
           <View style={styles.card}>
-            {/* Tab switcher */}
+            {/* Toggle Login/Cadastro */}
             <View style={styles.tabRow}>
-              <View style={styles.tabActive}>
-                <Text style={styles.tabTextActive}>Entrar</Text>
-              </View>
               <Pressable
-                style={styles.tabInactive}
-                onPress={() => router.replace("/(auth)/register")}
+                style={[styles.tab, isLogin && styles.tabActive]}
+                onPress={() => setIsLogin(true)}
               >
-                <Text style={styles.tabTextInactive}>Cadastrar</Text>
+                <Text style={[styles.tabText, isLogin && styles.tabTextActive]}>Entrar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.tab, !isLogin && styles.tabActive]}
+                onPress={() => setIsLogin(false)}
+              >
+                <Text style={[styles.tabText, !isLogin && styles.tabTextActive]}>Cadastrar</Text>
               </Pressable>
             </View>
 
-            {/* Email */}
+            {/* Campo Nome (só no cadastro) */}
+            {!isLogin && (
+              <View style={styles.fieldBlock}>
+                <Text style={styles.label}>Nome</Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Como você quer ser chamado?"
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.input}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+              </View>
+            )}
+
+            {/* Campo E-mail */}
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>E-mail</Text>
               <TextInput
@@ -155,14 +266,19 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Senha */}
+            {/* Campo Senha */}
             <View style={styles.fieldBlock}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Senha</Text>
-                <Pressable>
-                  <Text style={styles.forgotText}>Esqueci minha senha</Text>
-                </Pressable>
+                {isLogin && (
+                  <Pressable>
+                    <Text style={styles.forgotText}>Esqueci minha senha</Text>
+                  </Pressable>
+                )}
               </View>
+              {!isLogin && (
+                <Text style={styles.passwordHint}>Mínimo de 6 caracteres</Text>
+              )}
               <View style={styles.inputWrapper}>
                 <TextInput
                   value={password}
@@ -186,13 +302,13 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Botão Entrar */}
+            {/* Botão principal */}
             <Pressable
-              onPress={handleSignIn}
+              onPress={handleSubmit}
               disabled={loading}
               style={({ pressed }) => [
                 styles.primaryButton,
-                pressed && { opacity: 0.85 },
+                pressed && { opacity: 0.9 },
                 loading && { opacity: 0.7 },
               ]}
             >
@@ -203,7 +319,11 @@ export default function LoginScreen() {
                 style={styles.gradientButton}
               >
                 <Text style={styles.primaryButtonText}>
-                  {loading ? "Entrando…" : "Entrar"}
+                  {loading
+                    ? "Processando..."
+                    : isLogin
+                    ? "Entrar"
+                    : "Criar conta grátis"}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -211,19 +331,21 @@ export default function LoginScreen() {
             {/* Divisor */}
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>ou continue com</Text>
+              <Text style={styles.dividerText}>Entrar com</Text>
               <View style={styles.dividerLine} />
             </View>
 
-            {/* Social */}
-            <View style={styles.socialColumn}>
+            {/* Botões sociais */}
+            <View style={styles.socialRow}>
               <SocialButton
-                label="Entrar com Apple"
+                label={loadingApple ? "..." : "Apple"}
                 icon="logo-apple"
                 dark
+                onPress={handleAppleSignIn}
+                disabled={loadingApple}
               />
               <SocialButton
-                label={loadingGoogle ? "Abrindo Google…" : "Entrar com Google"}
+                label={loadingGoogle ? "..." : "Google"}
                 icon="logo-google"
                 dark={false}
                 onPress={handleGoogleSignIn}
@@ -232,21 +354,12 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Footer */}
+          {/* Rodapé */}
           <View style={styles.footer}>
             <Text style={styles.termsText}>
               Ao continuar, você concorda com nossos{" "}
               <Text style={styles.termsLink}>Termos de Uso</Text> e{" "}
               <Text style={styles.termsLink}>Política de Privacidade</Text>.
-            </Text>
-            <Text style={styles.signupText}>
-              Não tem conta?{" "}
-              <Text
-                style={styles.signupLink}
-                onPress={() => router.replace("/(auth)/register")}
-              >
-                Cadastrar grátis
-              </Text>
             </Text>
           </View>
         </ScrollView>
@@ -306,23 +419,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: Spacing.xxl,
   },
-  logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: Radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.lg,
-    shadowColor: Colors.greenDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoLetter: {
-    fontFamily: Typography.h2.fontFamily,
-    fontSize: 32,
-    color: "#FFFFFF",
+  logoImage: {
+    width: 220,
+    height: 80,
+    marginBottom: Spacing.md,
   },
   heroTitle: {
     ...Typography.h2,
@@ -342,10 +442,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
   },
   tabRow: {
     flexDirection: "row",
@@ -353,32 +453,31 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     padding: 4,
     marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
   },
-  tabActive: {
+  tab: {
     flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.pill,
     paddingVertical: 10,
     alignItems: "center",
+    borderRadius: Radius.pill,
+  },
+  tabActive: {
+    backgroundColor: Colors.surfaceElevated,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  tabInactive: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  tabTextActive: {
-    ...Typography.body,
-    fontWeight: "600",
-    color: Colors.text,
-  },
-  tabTextInactive: {
+  tabText: {
     ...Typography.body,
     color: Colors.textSecondary,
+    fontWeight: "500",
+  },
+  tabTextActive: {
+    color: Colors.text,
+    fontWeight: "600",
   },
   fieldBlock: {
     marginBottom: Spacing.lg,
@@ -394,6 +493,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: Spacing.xs,
   },
+  passwordHint: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+    marginTop: -4,
+  },
   inputWrapper: {
     position: "relative",
     justifyContent: "center",
@@ -406,6 +511,8 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontFamily: Typography.body.fontFamily,
     fontSize: Typography.body.fontSize,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
   },
   eyeButton: {
     position: "absolute",
@@ -414,14 +521,14 @@ const styles = StyleSheet.create({
   forgotText: {
     ...Typography.caption,
     fontWeight: "600",
-    color: Colors.greenDark,
+    color: Colors.primary,
   },
   primaryButton: {
     borderRadius: Radius.pill,
     overflow: "hidden",
     marginTop: Spacing.sm,
     marginBottom: Spacing.xl,
-    shadowColor: Colors.greenDark,
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
@@ -434,7 +541,8 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     ...Typography.h4,
-    color: Colors.surface,
+    color: "#111111",
+    fontWeight: "600",
   },
   divider: {
     flexDirection: "row",
@@ -453,10 +561,12 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1,
   },
-  socialColumn: {
-    gap: Spacing.sm,
+  socialRow: {
+    flexDirection: "row",
+    gap: Spacing.md,
   },
   socialButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -468,8 +578,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   socialButtonDark: {
-    backgroundColor: "#111111",
-    borderColor: "#111111",
+    backgroundColor: "#252525",
+    borderColor: "#252525",
   },
   socialButtonText: {
     ...Typography.body,
@@ -490,13 +600,5 @@ const styles = StyleSheet.create({
   termsLink: {
     color: Colors.text,
     textDecorationLine: "underline",
-  },
-  signupText: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-  },
-  signupLink: {
-    color: Colors.greenDark,
-    fontWeight: "700",
   },
 });

@@ -1,115 +1,233 @@
-import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { GradientButton } from "../../../components/ui/GradientButton";
+import { GradientButton } from "../../../components/ui";
+import { OnboardingHeader } from "../../../components/onboarding/OnboardingHeader";
 import { Colors } from "../../../constants/colors";
 import { Radius } from "../../../constants/radius";
 import { Spacing } from "../../../constants/spacing";
 import { Typography } from "../../../constants/typography";
-import { OnboardingHeader } from "../../../components/onboarding/OnboardingHeader";
-import { ProgressBar } from "../../../components/onboarding/ProgressBar";
 import { useOnboardingStore } from "../../../stores/useOnboardingStore";
-import type { Activity } from "../../../types/onboarding";
+import type { OnboardingMealEntry } from "../../../types/onboarding";
 
-const ACTIVITY_OPTIONS: {
-  value: Activity;
-  title: string;
-  subtitle: string;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-}[] = [
-  {
-    value: "sedentario",
-    title: "Sedentário",
-    subtitle: "Trabalho sentado, sem exercícios.",
-    icon: "desktop-outline",
-  },
-  {
-    value: "levemente_ativo",
-    title: "Leve",
-    subtitle: "Exercício leve 1-3 dias/semana.",
-    icon: "walk-outline",
-  },
-  {
-    value: "moderado",
-    title: "Moderadamente Ativo",
-    subtitle: "Exercício moderado 3-5 dias/semana.",
-    icon: "barbell-outline",
-  },
-  {
-    value: "muito_ativo",
-    title: "Muito Ativo",
-    subtitle: "Atleta ou exercício 6-7 dias/semana.",
-    icon: "flash-outline",
-  },
-];
+const MEAL_COUNTS = [3, 4, 5, 6, 7] as const;
+const ITEM_HEIGHT = 52;
+const PICKER_VISIBLE_ITEMS = 5;
+const PICKER_HEIGHT = ITEM_HEIGHT * PICKER_VISIBLE_ITEMS;
+
+const MEALS_BY_COUNT: Record<number, OnboardingMealEntry[]> = {
+  3: [
+    { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "13:00" },
+    { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
+  ],
+  4: [
+    { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "13:00" },
+    { type: "afternoon_snack", label: "Lanche da tarde", emoji: "🥤", default_time: "16:00" },
+    { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
+  ],
+  5: [
+    { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "morning_snack", label: "Lanche da manhã", emoji: "🍎", default_time: "10:00" },
+    { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "13:00" },
+    { type: "afternoon_snack", label: "Lanche da tarde", emoji: "🥤", default_time: "16:00" },
+    { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
+  ],
+  6: [
+    { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "morning_snack", label: "Lanche da manhã", emoji: "🍎", default_time: "10:00" },
+    { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "13:00" },
+    { type: "afternoon_snack", label: "Lanche da tarde", emoji: "🥤", default_time: "16:00" },
+    { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
+    { type: "supper", label: "Ceia", emoji: "🌛", default_time: "22:00" },
+  ],
+  7: [
+    { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "morning_snack", label: "Lanche da manhã", emoji: "🍎", default_time: "09:00" },
+    { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "12:00" },
+    { type: "afternoon_snack", label: "Lanche da tarde", emoji: "🥤", default_time: "15:00" },
+    { type: "extra_snack", label: "Lanche extra", emoji: "🍊", default_time: "17:00" },
+    { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
+    { type: "supper", label: "Ceia", emoji: "🌛", default_time: "22:00" },
+  ],
+};
 
 export default function OnboardingStep6Screen() {
-  const { activity, setActivity } = useOnboardingStore();
+  const { meals_per_day, setMealsPerDay, setMeals } = useOnboardingStore();
+  const [selectedCount, setSelectedCount] = useState(() => {
+    const n = Math.min(7, Math.max(3, meals_per_day));
+    return n;
+  });
+  const scrollRef = useRef<ScrollView>(null);
+
+  const currentMeals = MEALS_BY_COUNT[selectedCount] ?? MEALS_BY_COUNT[5];
+
+  // Scroll inicial para centralizar o valor atual (ex.: 5 refeições)
+  useEffect(() => {
+    const idx = MEAL_COUNTS.indexOf(selectedCount as (typeof MEAL_COUNTS)[number]);
+    if (idx < 0) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: idx * ITEM_HEIGHT,
+        animated: false,
+      });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const getIndexFromOffset = useCallback((y: number) => {
+    const index = Math.round(y / ITEM_HEIGHT);
+    return Math.max(0, Math.min(MEAL_COUNTS.length - 1, index));
+  }, []);
+
+  // Atualiza a seleção e a lista de refeições em tempo real enquanto arrasta
+  const handleScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const index = getIndexFromOffset(y);
+      const count = MEAL_COUNTS[index];
+      setSelectedCount(count);
+    },
+    [getIndexFromOffset]
+  );
+
+  // Ao soltar o dedo, encaixa no item mais próximo
+  const handleScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const index = getIndexFromOffset(y);
+      const count = MEAL_COUNTS[index];
+      setSelectedCount(count);
+      scrollRef.current?.scrollTo({
+        y: index * ITEM_HEIGHT,
+        animated: true,
+      });
+    },
+    [getIndexFromOffset]
+  );
+
+  const handleMomentumScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const index = getIndexFromOffset(y);
+      const count = MEAL_COUNTS[index];
+      setSelectedCount(count);
+      const targetY = index * ITEM_HEIGHT;
+      const currentY = e.nativeEvent.contentOffset.y;
+      if (Math.abs(currentY - targetY) > 2 && scrollRef.current) {
+        scrollRef.current.scrollTo({
+          y: targetY,
+          animated: true,
+        });
+      }
+    },
+    [getIndexFromOffset]
+  );
 
   const handleContinue = () => {
-    if (activity) {
-      router.push("/(auth)/onboarding/step-7");
-    }
+    setMealsPerDay(selectedCount);
+    setMeals(currentMeals);
+    router.push("/(auth)/onboarding/step-7");
   };
 
   return (
-    <View style={styles.root}>
-      <ProgressBar progress={6 / 7} />
-
-      <OnboardingHeader step={6} totalSteps={7} subtitle="Nível de Atividade" />
+    <SafeAreaView style={styles.root} edges={["top"]}>
+      <OnboardingHeader
+        step={6}
+        totalSteps={9}
+        subtitle="Refeições"
+        fallbackRoute="/(auth)/onboarding/step-5"
+      />
 
       <View style={styles.titleBlock}>
-        <Text style={styles.title}>Qual seu nível de atividade?</Text>
+        <Text style={styles.title}>Quantas refeições por dia?</Text>
         <Text style={styles.subtitle}>
-          Selecione a opção que melhor descreve sua rotina semanal.
+          Distribuímos suas calorias entre elas
         </Text>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {ACTIVITY_OPTIONS.map((opt) => {
-          const isSelected = activity === opt.value;
-          return (
-            <Pressable
-              key={opt.value}
-              onPress={() => setActivity(opt.value)}
-              style={({ pressed }) => [
-                styles.card,
-                isSelected && styles.cardSelected,
-                pressed && styles.pressed,
-              ]}
-            >
-              {isSelected && <View style={styles.cardSelectedBar} />}
-              <View style={[styles.iconBox, isSelected && styles.iconBoxSelected]}>
-                <Ionicons
-                  name={opt.icon}
-                  size={24}
-                  color={isSelected ? Colors.green : Colors.textSecondary}
-                />
-              </View>
-              <View style={styles.textBlock}>
-                <Text style={styles.cardTitle}>{opt.title}</Text>
-                <Text style={styles.cardSubtitle}>{opt.subtitle}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <GradientButton
-          title="Continuar"
-          onPress={handleContinue}
-          disabled={!activity}
-          showArrow
+      <View style={styles.pickerWrap}>
+        <LinearGradient
+          colors={[Colors.background, "transparent"]}
+          style={styles.pickerFadeTop}
+          pointerEvents="none"
+        />
+        <View style={styles.pickerWindow}>
+          <ScrollView
+            ref={scrollRef}
+            showsVerticalScrollIndicator={false}
+            snapToInterval={ITEM_HEIGHT}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            contentContainerStyle={{
+              paddingVertical: (PICKER_HEIGHT - ITEM_HEIGHT) / 2,
+            }}
+            onScroll={handleScroll}
+            onScrollEndDrag={handleScrollEnd}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+            scrollEventThrottle={16}
+          >
+            {MEAL_COUNTS.map((count) => {
+              const isSelected = count === selectedCount;
+              return (
+                <View
+                  key={count}
+                  style={[styles.pickerItem, isSelected && styles.pickerItemSelected]}
+                >
+                  <Text
+                    style={[
+                      styles.pickerItemText,
+                      isSelected && styles.pickerItemTextSelected,
+                    ]}
+                  >
+                    {count} refeições
+                  </Text>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+        <LinearGradient
+          colors={["transparent", Colors.background]}
+          style={styles.pickerFadeBottom}
+          pointerEvents="none"
         />
       </View>
-    </View>
+
+      <View style={styles.mealListSection}>
+        <Text style={styles.mealListLabel}>SUAS REFEIÇÕES</Text>
+        <View style={styles.mealCard}>
+          {currentMeals.map((meal, index) => (
+            <React.Fragment key={meal.type}>
+              {index > 0 && <View style={styles.mealSeparator} />}
+              <View style={styles.mealRow}>
+                <Text style={styles.mealEmoji}>{meal.emoji}</Text>
+                <Text style={styles.mealLabel}>{meal.label}</Text>
+                <Text style={styles.mealTime}>{meal.default_time}</Text>
+              </View>
+            </React.Fragment>
+          ))}
+        </View>
+        <Text style={styles.mealNote}>
+          Horários ajustáveis depois em Configurações
+        </Text>
+      </View>
+
+      <View style={styles.footer}>
+        <GradientButton title="Continuar" onPress={handleContinue} showArrow />
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -126,7 +244,7 @@ const styles = StyleSheet.create({
   title: {
     ...Typography.h2,
     fontSize: 24,
-    fontWeight: "500",
+    fontWeight: "600",
     color: Colors.text,
     marginBottom: Spacing.sm,
   },
@@ -135,70 +253,106 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
   },
-  scroll: {
+  pickerWrap: {
+    height: PICKER_HEIGHT,
+    marginHorizontal: Spacing.xl,
+    position: "relative",
+  },
+  pickerFadeTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: ITEM_HEIGHT * 2,
+    zIndex: 1,
+  },
+  pickerFadeBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: ITEM_HEIGHT * 2,
+    zIndex: 1,
+  },
+  pickerWindow: {
     flex: 1,
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xxxl,
-    gap: 12,
-  },
-  card: {
-    flexDirection: "row",
+  pickerItem: {
+    height: ITEM_HEIGHT,
+    justifyContent: "center",
     alignItems: "center",
-    gap: Spacing.lg,
-    padding: Spacing.lg,
-    borderRadius: Radius.xl,
+  },
+  pickerItemSelected: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.lg,
+    marginHorizontal: Spacing.sm,
+  },
+  pickerItemText: {
+    ...Typography.body,
+    fontSize: 16,
+    color: Colors.textSecondary,
+  },
+  pickerItemTextSelected: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.textInverse,
+  },
+  mealListSection: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+  },
+  mealListLabel: {
+    ...Typography.label,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  mealCard: {
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
+    borderRadius: Radius.xl,
     overflow: "hidden",
   },
-  cardSelected: {
-    borderWidth: 2,
-    borderColor: Colors.green,
-    backgroundColor: Colors.greenLight,
-  },
-  cardSelectedBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: Colors.green,
-  },
-  pressed: {
-    opacity: 0.95,
-  },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.background,
+  mealRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
   },
-  iconBoxSelected: {
-    backgroundColor: `${Colors.green}1A`,
+  mealSeparator: {
+    height: 1,
+    backgroundColor: Colors.borderSubtle,
+    marginLeft: Spacing.lg + 28,
   },
-  textBlock: {
-    flex: 1,
+  mealEmoji: {
+    fontSize: 20,
+    width: 28,
+    textAlign: "center",
   },
-  cardTitle: {
+  mealLabel: {
     ...Typography.body,
-    fontSize: 18,
-    fontWeight: "700",
+    flex: 1,
+    fontWeight: "500",
     color: Colors.text,
   },
-  cardSubtitle: {
+  mealTime: {
     ...Typography.bodySmall,
     color: Colors.textSecondary,
-    marginTop: 2,
+  },
+  mealNote: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    marginTop: Spacing.md,
   },
   footer: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxl,
     paddingTop: Spacing.lg,
     backgroundColor: Colors.background,
+    marginTop: "auto",
   },
 });

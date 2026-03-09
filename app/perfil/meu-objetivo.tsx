@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
+import { goBack } from "../../utils/navigation";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -8,8 +9,11 @@ import { Colors } from "../../constants/colors";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
+import { supabase } from "../../services/supabase";
 import { useUserStore } from "../../stores/useUserStore";
 import type { UserGoal } from "../../types/user";
+import { getAgeFromBirthDate } from "../../utils/date";
+import { calcularNutricao } from "../../utils/mifflin";
 
 const GOALS: { key: UserGoal; label: string; subtitle: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
   { key: "perder_gordura", label: "Perder gordura", subtitle: "Déficit calórico controlado", icon: "trending-down-outline" },
@@ -26,16 +30,53 @@ const PACE_OPTIONS = [
 
 export default function MeuObjetivoScreen() {
   const user = useUserStore((s) => s.user);
+  const updateUser = useUserStore((s) => s.updateUser);
   const [selectedGoal, setSelectedGoal] = useState<UserGoal>(user?.goal ?? "perder_gordura");
   const [selectedPace, setSelectedPace] = useState<number>(user?.weekly_pace ?? 0.5);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
+    if (!user?.id) return;
+
     setSaving(true);
     try {
-      // TODO: salvar no Supabase e recalcular macros
-      Alert.alert("Salvo!", "Objetivo atualizado com sucesso.");
-      router.back();
+      const age = getAgeFromBirthDate(new Date(user.birth_date));
+      const result = calcularNutricao({
+        sex: user.sex,
+        weight_kg: user.weight_kg,
+        height_cm: user.height_cm,
+        age,
+        activity: user.activity,
+        goal: selectedGoal,
+        target_weight: user.target_weight,
+        weekly_pace: selectedPace as 0.25 | 0.5 | 0.75 | 1.0,
+      });
+
+      const updates = {
+        goal: selectedGoal,
+        weekly_pace: selectedPace,
+        tmb: result.tmb,
+        tdee: result.tdee,
+        daily_kcal: result.meta,
+        protein_g: result.protein_g,
+        carbo_g: result.carbo_g,
+        fat_g: result.fat_g,
+        target_date: result.target_date.toISOString().slice(0, 10),
+      };
+
+      const { error } = await supabase
+        .from("users")
+        .update(updates)
+        .eq("id", user.id);
+
+      if (error) {
+        Alert.alert("Erro", "Não foi possível salvar. Tente novamente.");
+        return;
+      }
+
+      updateUser(updates);
+      Alert.alert("Salvo!", "Plano recalculado com base nos novos dados ✓");
+      goBack();
     } catch {
       Alert.alert("Erro", "Não foi possível salvar. Tente novamente.");
     } finally {
@@ -46,7 +87,7 @@ export default function MeuObjetivoScreen() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable style={styles.backBtn} onPress={() => goBack()}>
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Meu objetivo</Text>

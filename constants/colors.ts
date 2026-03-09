@@ -1,41 +1,44 @@
 export const Colors = {
-  // Verdes (harmonizados com o gradiente e fundo #F5F5F0)
-  green: "#6AB84D",
-  greenDark: "#2E8B3A",
-  greenLight: "#E8F5E9",
-  greenMid: "#4CAF50",
+  // Primária
+  primary: "#CAFF66",
+  primaryDark: "#A8D94A",
+  primaryLight: "#EDFFC0",
 
-  // Azuis (hidratação)
-  blue: "#3B82F6",
-  blueDark: "#2563EB",
-  blueBg: "#EFF6FF",
-
-  // Fundos
-  background: "#F5F5F0", // fundo principal
-  surface: "#FFFFFF", // cards e superfícies
-  surfaceMuted: "#F0F0EC", // cinza suave (ex.: navbar)
-  surfaceDark: "#111111", // card Ultra/dark
+  // Fundos (Dark Mode padrão)
+  background: "#111111", // bg-base
+  surface: "#1C1C1C",    // bg-card
+  surfaceElevated: "#252525", // bg-elevated
 
   // Textos
-  text: "#1A1A1A",
-  textSecondary: "#757575",
-  textMuted: "#BDBDBD",
+  text: "#FFFFFF",          // text-primary
+  textSecondary: "#B3B3B3", // text-secondary
+  textDisabled: "#4D4D4D",  // text-disabled
+  textInverse: "#111111",   // Texto sobre cor primária (SEMPRE PRETO)
+  textMuted: "#777777",     // texto secundário mais sutil
 
   // Bordas
-  border: "#EBEBEB",
+  border: "#333333",
+  borderSubtle: "#2A2A2A",
+
+  // Semânticas
+  success: "#45C588",
+  error: "#FF6F43",
+  warning: "#F59E0B",
+  errorBg: "#3D1F14",
 
   // Macros (consistentes em todo o app)
-  protein: "#EF5350", // vermelho
-  proteinBg: "#FEE2E2",
-  carbo: "#F59E0B", // amarelo/laranja
-  carboBg: "#FEF3C7",
-  fat: "#3DA63A", // verde
-  fatBg: "#E8F5E9",
+  protein: "#FF6F43",
+  proteinBg: "#3D1F14",
+  carbo: "#F59E0B",
+  carboBg: "#3D2E0A",
+  fat: "#45C588",
+  fatBg: "#1A3D2E",
 
-  // Estados
-  error: "#EF4444",
-  errorBg: "#FEE2E2",
-  warning: "#F59E0B",
-  success: "#3DA63A",
+  // Legado (manter compatibilidade se necessário, mas evitar uso)
+  green: "#CAFF66",
+  greenDark: "#A8D94A",
+  greenLight: "rgba(202,255,102,0.12)",
+  blue: "#3B82F6",
+  blueDark: "#1D4ED8",
+  blueBg: "#10233D",
 } as const;
-

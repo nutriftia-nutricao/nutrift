@@ -80,8 +80,11 @@ export default function SubstituirAlimentoScreen() {
       fat_g: food.fat_g,
     });
     
-    // Voltar para a tela anterior
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/");
+    }
   };
 
   const renderFoodCard = (food: FoodSuggestion, index: number) => (
@@ -141,7 +144,13 @@ export default function SubstituirAlimentoScreen() {
             styles.backButton,
             pressed && styles.pressed,
           ]}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/");
+            }
+          }}
         >
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </Pressable>

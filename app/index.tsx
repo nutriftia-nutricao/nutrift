@@ -1,39 +1,46 @@
 import { getSession, recoverSessionFromUrl } from "../services/auth";
 import { ensureUserProfile, fetchUserProfile } from "../services/user";
+import { useHydrationStore } from "../stores/useHydrationStore";
+import { useOnboardingStore } from "../stores/useOnboardingStore";
 import { useUserStore } from "../stores/useUserStore";
 import { Redirect } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 
 import { Colors } from "../constants/colors";
 
 export default function Index() {
   const [checking, setChecking] = useState(true);
-  const [hasSession, setHasSession] = useState(false);
+  const [resolvedProfile, setResolvedProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | false>(null);
 
   const setUser = useUserStore((s) => s.setUser);
   const user = useUserStore((s) => s.user);
+  const setOnboardingData = useOnboardingStore((s) => s.setData);
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
     let cancelled = false;
 
     async function checkAuth() {
       try {
         await recoverSessionFromUrl();
-        const {
+        let {
           data: { session },
         } = await getSession();
+        // Na web, a sessão pode ainda não ter sido reidratada do storage; tenta de novo uma vez
+        if (!session?.user?.id && typeof window !== "undefined") {
+          await new Promise((r) => setTimeout(r, 400));
+          if (cancelled) return;
+          const retry = await getSession();
+          session = retry.data.session;
+        }
         if (cancelled) return;
         if (!session?.user?.id) {
-          setHasSession(false);
+          setResolvedProfile(false);
           setChecking(false);
           return;
         }
-        if (user?.id === session.user.id) {
-          setHasSession(true);
-          setChecking(false);
-          return;
-        }
+        // Sempre busca perfil no backend para evitar dados desatualizados (ex.: step-9 falhou em sessão anterior)
         let profile = await fetchUserProfile(session.user.id);
         if (cancelled) return;
         if (!profile) {
@@ -48,12 +55,18 @@ export default function Index() {
         if (cancelled) return;
         if (profile) {
           setUser(profile);
-          setHasSession(true);
+          if (profile.hydration_ml && profile.hydration_ml > 0) {
+            useHydrationStore.getState().setWaterGoalL(profile.hydration_ml / 1000);
+          }
+          if (!profile.onboarding_completed) {
+            setOnboardingData({ name: profile.name || "" });
+          }
+          setResolvedProfile(profile);
         } else {
-          setHasSession(false);
+          setResolvedProfile(false);
         }
       } catch {
-        if (!cancelled) setHasSession(false);
+        if (!cancelled) setResolvedProfile(false);
       } finally {
         if (!cancelled) setChecking(false);
       }
@@ -63,7 +76,11 @@ export default function Index() {
     return () => {
       cancelled = true;
     };
-  }, [setUser, user?.id]);
+  }, [setUser, setOnboardingData, user?.id]);
+
+  if (Platform.OS === "web") {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   if (checking) {
     return (
@@ -73,7 +90,14 @@ export default function Index() {
     );
   }
 
-  if (hasSession) {
+  const profile = resolvedProfile === false ? null : resolvedProfile;
+  if (profile) {
+    // Só vai para a tela principal se o onboarding foi explicitamente concluído (step-9).
+    // Qualquer outro valor (undefined, null, false) mantém o usuário no onboarding.
+    const onboardingCompleted = profile.onboarding_completed === true;
+    if (!onboardingCompleted) {
+      return <Redirect href="/(auth)/onboarding/step-1" />;
+    }
     return <Redirect href="/(tabs)/" />;
   }
 

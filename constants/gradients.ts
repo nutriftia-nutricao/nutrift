@@ -1,6 +1,10 @@
 export const GradientColors = {
-  // Verde mais suave e harmonioso com o fundo #F5F5F0 (cima → baixo)
-  primary: ["#6AB84D", "#2E8B3A"] as const,
-  dark: ["#1A1A1A", "#111111"] as const,
+  // Primário: verde limão flat (#CAFF66)
+  primary: ["#CAFF66", "#CAFF66"] as const,
+  
+  // Dark: #333333 → #1C1C1C (cima → baixo)
+  dark: ["#333333", "#1C1C1C"] as const,
+  
+  // Ultra: #CAFF66 → #45C588 (cima → baixo)
+  ultra: ["#CAFF66", "#45C588"] as const,
 } as const;
-

@@ -1,20 +1,13 @@
-import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React from "react";
-import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { GradientButton } from "../../../components/ui/GradientButton";
+import { BodyMetricPicker } from "../../../components/onboarding/BodyMetricPicker";
+import { GradientButton } from "../../../components/ui";
 import { OnboardingHeader } from "../../../components/onboarding/OnboardingHeader";
-import { ProgressBar } from "../../../components/onboarding/ProgressBar";
 import { Colors } from "../../../constants/colors";
-import { Radius } from "../../../constants/radius";
 import { Spacing } from "../../../constants/spacing";
 import { Typography } from "../../../constants/typography";
 import { useOnboardingStore } from "../../../stores/useOnboardingStore";
@@ -24,160 +17,113 @@ export default function OnboardingStep2Screen() {
     age,
     weight_kg,
     height_cm,
+    body_fat_pct,
     setAge,
     setWeight,
     setHeight,
+    setBodyFatPct,
   } = useOnboardingStore();
+
+  const weightMin = 35;
+  const weightMax = 180;
+
+  useEffect(() => {
+    if (weight_kg < weightMin) setWeight(weightMin);
+    else if (weight_kg > weightMax) setWeight(weightMax);
+  }, []);
+
+  // Garante que o valor exibido (18) da tela 2 vá para o store ao focar na tela (dados usados na tela 4)
+  useFocusEffect(
+    useCallback(() => {
+      if (body_fat_pct === null) setBodyFatPct(18);
+    }, [body_fat_pct, setBodyFatPct])
+  );
 
   const handleContinue = () => {
     router.push("/(auth)/onboarding/step-3");
   };
 
+  const handleBack = () => {
+    router.back();
+  };
+
   return (
-    <View style={styles.root}>
-      <ProgressBar progress={2 / 7} />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.root}>
+        <OnboardingHeader step={2} totalSteps={9} subtitle="" showBack={true} fallbackRoute="/(auth)/onboarding/step-1" />
 
-      <OnboardingHeader step={2} totalSteps={7} subtitle="Dados Corporais" />
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.titleBlock}>
-          <Text style={styles.title}>Seus dados corporais</Text>
-          <Text style={styles.subtitle}>
-            Mantenha seus dados atualizados para cálculos precisos de
-            macronutrientes.
-          </Text>
-        </View>
-
-        <View style={styles.cards}>
-          <View style={[styles.card, styles.cardActive]}>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardLabel}>Idade</Text>
-              <View style={styles.valueRow}>
-                <Text style={styles.valueText}>{age}</Text>
-                <Text style={styles.valueUnit}>anos</Text>
-              </View>
-            </View>
-            <View style={styles.stepper}>
-              <Pressable
-                onPress={() => setAge(Math.max(14, age - 1))}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="remove" size={20} color={Colors.green} />
-              </Pressable>
-              <Pressable
-                onPress={() => setAge(Math.min(120, age + 1))}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="add" size={20} color={Colors.green} />
-              </Pressable>
-            </View>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentInner}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.titleBlock}>
+            <Text style={styles.title}>Seus dados corporais</Text>
+            <Text style={styles.subtitle}>
+              Insira suas informações para calcularmos suas metas
+              personalizadas.
+            </Text>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.cardContent}>
-              <Text style={[styles.cardLabel, styles.cardLabelInactive]}>
-                Peso Atual
-              </Text>
-              <View style={styles.valueRow}>
-                <Text style={styles.valueText}>
-                  {Number(weight_kg).toFixed(1)}
-                </Text>
-                <Text style={styles.valueUnit}>kg</Text>
-              </View>
-            </View>
-            <View style={styles.weightStepper}>
-              <Pressable
-                onPress={() =>
-                  setWeight(
-                    Math.max(30, Math.round((weight_kg - 0.1) * 10) / 10)
-                  )
-                }
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="remove" size={20} color={Colors.green} />
-              </Pressable>
-              <Pressable
-                onPress={() =>
-                  setWeight(
-                    Math.min(300, Math.round((weight_kg + 0.1) * 10) / 10)
-                  )
-                }
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="add" size={20} color={Colors.green} />
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.cardContent}>
-              <Text style={[styles.cardLabel, styles.cardLabelInactive]}>
-                Altura
-              </Text>
-              <View style={styles.valueRow}>
-                <Text style={styles.valueText}>{height_cm}</Text>
-                <Text style={styles.valueUnit}>cm</Text>
-              </View>
-            </View>
-            <View style={styles.heightStepper}>
-              <Pressable
-                onPress={() => setHeight(Math.max(100, height_cm - 1))}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="remove" size={20} color={Colors.green} />
-              </Pressable>
-              <Pressable
-                onPress={() => setHeight(Math.min(250, height_cm + 1))}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="add" size={20} color={Colors.green} />
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.tipCard}>
-            <View style={styles.tipOverlay} />
-            <Image
-              source={{
-                uri: "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=800",
-              }}
-              style={styles.tipImage}
-              resizeMode="cover"
+          <View style={styles.cards}>
+            <BodyMetricPicker
+              label="ALTURA"
+              value={height_cm}
+              min={140}
+              max={220}
+              step={1}
+              unit="CM"
+              majorStep={10}
+              mediumStep={5}
+              onChange={setHeight}
             />
-            <View style={styles.tipContent}>
-              <Text style={styles.tipLabel}>Dica de Precisão</Text>
-              <Text style={styles.tipTitle}>Pese-se sempre pela manhã</Text>
-            </View>
-          </View>
-        </View>
-      </ScrollView>
 
-      <View style={styles.footer}>
-        <GradientButton title="Continuar" onPress={handleContinue} />
-      </View>
-    </View>
+            <BodyMetricPicker
+              label="PESO ATUAL"
+              value={weight_kg}
+              min={weightMin}
+              max={weightMax}
+              step={0.1}
+              displayStep={1}
+              unit="KG"
+              majorStep={10}
+              mediumStep={5}
+              formatValue={(v) => v.toFixed(1)}
+              onChange={setWeight}
+            />
+
+            <BodyMetricPicker
+              label="IDADE"
+              value={age}
+              min={10}
+              max={100}
+              step={1}
+              unit="ANOS"
+              majorStep={10}
+              mediumStep={5}
+              onChange={setAge}
+            />
+
+            <BodyMetricPicker
+              label="GORDURA CORPORAL"
+              value={body_fat_pct ?? 18}
+              min={5}
+              max={50}
+              step={0.5}
+              unit="%"
+              majorStep={5}
+              mediumStep={2.5}
+              formatValue={(v) => v.toFixed(1)}
+              onChange={setBodyFatPct}
+            />
+          </View>
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <GradientButton title="Continuar" onPress={handleContinue} showArrow />
+        </View>
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -186,12 +132,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  scroll: {
+  content: {
     flex: 1,
   },
-  scrollContent: {
+  contentInner: {
     paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
     paddingBottom: Spacing.xxl,
+  },
+  pressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
   },
   titleBlock: {
     marginBottom: Spacing.xl,
@@ -202,116 +153,19 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   subtitle: {
-    ...Typography.bodySmall,
+    ...Typography.body,
     color: Colors.textSecondary,
+    lineHeight: 22,
   },
   cards: {
     gap: Spacing.lg,
-  },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: Spacing.lg,
-  },
-  cardActive: {
-    backgroundColor: Colors.greenLight,
-    borderWidth: 2,
-    borderColor: Colors.green,
-  },
-  cardContent: {
-    flex: 1,
-  },
-  cardLabel: {
-    ...Typography.label,
-    color: Colors.green,
-  },
-  cardLabelInactive: {
-    color: Colors.textSecondary,
-  },
-  valueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: Spacing.xs,
-    marginTop: Spacing.xs,
-  },
-  valueText: {
-    ...Typography.h1,
-    fontSize: 36,
-    color: Colors.text,
-  },
-  valueUnit: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-    fontWeight: "500",
-  },
-  stepper: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  weightStepper: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  heightStepper: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  stepperBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  tipCard: {
-    marginTop: Spacing.md,
-    borderRadius: Radius.lg,
-    overflow: "hidden",
-    aspectRatio: 16 / 9,
-    position: "relative",
-  },
-  tipOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    zIndex: 1,
-  },
-  tipImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: "100%",
-    height: "100%",
-  },
-  tipContent: {
-    position: "absolute",
-    bottom: Spacing.lg,
-    left: Spacing.lg,
-    zIndex: 2,
-  },
-  tipLabel: {
-    ...Typography.label,
-    color: Colors.surface,
-    opacity: 0.9,
-    marginBottom: Spacing.xs,
-  },
-  tipTitle: {
-    ...Typography.h3,
-    color: Colors.surface,
   },
   footer: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxl,
     paddingTop: Spacing.lg,
     backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderSubtle,
   },
 });

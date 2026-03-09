@@ -7,42 +7,41 @@ export interface SignUpResult {
   userId: string;
   email: string;
   error: Error | null;
+  /** True quando o Supabase exige confirmação de e-mail antes de ativar a sessão. */
+  needsEmailConfirmation?: boolean;
 }
 
 export async function signUp(email: string, password: string): Promise<SignUpResult> {
   const normalizedEmail = email.trim().toLowerCase();
-  const { data, error } = await supabase.auth.signUp({
+
+  // Tenta criar a conta
+  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
     email: normalizedEmail,
     password,
-    options: {
-      emailRedirectTo: undefined,
-      data: undefined,
-    },
   });
 
-  if (error) {
-    return { userId: "", email: "", error };
+  if (signUpError) {
+    return { userId: "", email: "", error: signUpError };
   }
 
-  const userId = data.user?.id ?? "";
-  const userEmail = data.user?.email ?? normalizedEmail;
-
-  // Garantir sessão ativa (necessário para RLS no insert em public.users).
-  // Se o projeto exige confirmação de e-mail, a sessão pode não existir ainda.
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session && userId) {
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-    if (signInError) {
-      // Conta criada mas e-mail não confirmado: retornamos sucesso mesmo assim;
-      // a tela pode pedir para o usuário confirmar o e-mail antes de continuar.
-      return { userId, email: userEmail, error: null };
-    }
+  // Supabase retorna user mesmo quando confirmação está pendente.
+  // Se identities está vazio, o e-mail já existe na base.
+  const user = signUpData.user;
+  if (!user) {
+    return { userId: "", email: "", error: new Error("Não foi possível criar a conta. Tente novamente.") };
   }
 
-  return { userId, email: userEmail, error: null };
+  if (user.identities && user.identities.length === 0) {
+    return { userId: "", email: "", error: new Error("Este e-mail já está cadastrado. Tente fazer login.") };
+  }
+
+  const userId = user.id;
+  const userEmail = user.email ?? normalizedEmail;
+
+  // Se o projeto exigir confirmação de e-mail, signUpData.session vem null.
+  const needsEmailConfirmation = !signUpData.session;
+
+  return { userId, email: userEmail, error: null, needsEmailConfirmation };
 }
 
 export async function signIn(email: string, password: string) {
@@ -54,15 +53,26 @@ export async function signIn(email: string, password: string) {
 
 /** Redireciona para o login com Google (OAuth). Web: redirect. Native: abre browser. */
 export async function signInWithGoogle(): Promise<{ error: Error | null }> {
+  return signInWithProvider("google");
+}
+
+/** Redireciona para o login com Apple (OAuth). */
+export async function signInWithApple(): Promise<{ error: Error | null }> {
+  return signInWithProvider("apple");
+}
+
+async function signInWithProvider(provider: "google" | "apple"): Promise<{ error: Error | null }> {
+  // No Expo Go: exp://192.168.x.x:8081/--/
+  // Em build standalone: nutrift://
   const redirectUrl =
     Platform.OS === "web"
       ? typeof window !== "undefined"
         ? window.location.origin
         : undefined
-      : Linking.createURL("");
+      : Linking.createURL("/");
 
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
+    provider,
     options: {
       redirectTo: redirectUrl ?? undefined,
       queryParams: {
@@ -82,12 +92,40 @@ export async function signInWithGoogle(): Promise<{ error: Error | null }> {
     return { error: null };
   }
 
+  console.log(`[${provider} OAuth] redirectUrl:`, redirectUrl);
+  console.log(`[${provider} OAuth] OAuth URL:`, url);
+
   const result = await WebBrowser.openAuthSessionAsync(url, redirectUrl ?? undefined);
+
+  console.log(`[${provider} OAuth] result.type:`, result.type);
+  if (result.type === "success") {
+    console.log(`[${provider} OAuth] result.url:`, result.url);
+  }
+
+  if (result.type === "cancel" || result.type === "dismiss") {
+    return { error: new Error(`Login com ${provider} cancelado`) };
+  }
+
   if (result.type === "success" && result.url) {
-    const parsed = Linking.parse(result.url);
-    const params = parsed.queryParams as Record<string, string> | undefined;
-    const accessToken = params?.access_token;
-    const refreshToken = params?.refresh_token;
+    // Tokens podem vir no hash (#access_token=...) ou como query params
+    const rawUrl = result.url;
+
+    // Extrai a parte do hash se existir
+    const hashIndex = rawUrl.indexOf("#");
+    const hashString = hashIndex !== -1 ? rawUrl.slice(hashIndex + 1) : "";
+    const hashParams = new URLSearchParams(hashString);
+
+    let accessToken = hashParams.get("access_token");
+    let refreshToken = hashParams.get("refresh_token");
+
+    // Fallback: tenta nos query params
+    if (!accessToken || !refreshToken) {
+      const parsed = Linking.parse(rawUrl);
+      const qp = parsed.queryParams as Record<string, string> | undefined;
+      accessToken = accessToken ?? qp?.access_token ?? null;
+      refreshToken = refreshToken ?? qp?.refresh_token ?? null;
+    }
+
     if (accessToken && refreshToken) {
       const { error: sessionError } = await supabase.auth.setSession({
         access_token: accessToken,
@@ -95,13 +133,19 @@ export async function signInWithGoogle(): Promise<{ error: Error | null }> {
       });
       return { error: sessionError ?? null };
     }
+
+    // Se não há tokens na URL de retorno, verifica se o Supabase já tem sessão ativa
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session) {
+      return { error: null };
+    }
   }
 
-  return { error: new Error("Login com Google cancelado ou falhou") };
+  return { error: new Error(`Login com ${provider} falhou. Tente novamente.`) };
 }
 
 export async function signOut() {
-  return supabase.auth.signOut();
+  return supabase.auth.signOut({ scope: "local" });
 }
 
 /**

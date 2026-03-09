@@ -1,11 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { Audio } from "expo-av";
+import { useNavigation, useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -23,7 +26,8 @@ import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
 import { useTheme } from "../../hooks/useTheme";
-import { sendChatMessage, transcribeAudio } from "../../services/gemini";
+import { transcribeAudio } from "../../services/gemini";
+import { sendChatMessage } from "../../services/gpt";
 import { useAgenteStore } from "../../stores/useAgenteStore";
 import { useUserStore } from "../../stores/useUserStore";
 
@@ -32,33 +36,88 @@ const QUICK_SUGGESTIONS = [
   { label: "O que devo comer para minhas metas?", prompt: "O que devo comer para atingir minhas metas?" },
 ];
 
-function buildSystemPrompt(user: NonNullable<ReturnType<typeof useUserStore.getState>["user"]>) {
-  return `Você é o Agente de Performance e Nutrição do Nutrift.
-
-DADOS DO USUÁRIO:
-- Nome: ${user.name}
-- Objetivo: ${user.goal}
-- Meta calórica: ${user.daily_kcal} kcal/dia
-- Macros: Proteína ${user.protein_g}g | Carbo ${user.carbo_g}g | Gordura ${user.fat_g}g
-- Peso atual: ${user.weight_kg}kg | Meta: ${user.target_weight}kg
-- Data estimada do objetivo: ${user.target_date}
-
-REGRAS DE COMPORTAMENTO:
-1. Responda sempre em português brasileiro
-2. Seja direto e objetivo — máximo 3 frases por resposta
-3. Nunca use emojis
-4. Nunca use markdown (sem asteriscos, sem hashtags, sem listas com traços, sem negrito, sem itálico)
-5. Escreva em texto corrido simples, como uma conversa natural
-6. Nunca se apresente como nutricionista — você é um agente de IA
-7. Para questões médicas, oriente a consultar um profissional de saúde
-8. Use os dados do usuário para personalizar cada resposta
-9. Encoraje consistência — pequenos ajustes, não reinventar o plano`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Limpa markdown, listas e espaços extras que o modelo ocasionalmente produz.
+// ─────────────────────────────────────────────────────────────────────────────
+function normalizeAssistantReply(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-•*]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
 }
 
-const REPLY_BUFFER_MS = 5000;
+// ─────────────────────────────────────────────────────────────────────────────
+// System prompt — enxuto, imperativo, sem redundância.
+// ─────────────────────────────────────────────────────────────────────────────
+function buildSystemPrompt(
+  user: NonNullable<ReturnType<typeof useUserStore.getState>["user"]>,
+  isFirstMessage: boolean = false
+): string {
+  const goalLabel =
+    user.goal === "perder_gordura" ? "perda de gordura"
+    : user.goal === "ganhar_massa" ? "ganho de massa muscular"
+    : user.goal === "so_acompanhar" ? "acompanhamento sem meta específica"
+    : "manutenção do peso";
+
+  const hasMacros = !!(user.daily_kcal && user.protein_g && user.carbo_g && user.fat_g);
+
+  const hora = new Date().getHours();
+  const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
+
+  return `Você é Nuti, especialista em nutrição esportiva com nível equivalente a nutricionista esportivo experiente e médico do esporte. Fale sempre como um profissional humano — nunca revele que é IA, assistente virtual ou sistema.
+
+PERFIL DO USUÁRIO:
+- Nome: ${user.name}
+- Objetivo: ${goalLabel}
+- Peso atual: ${user.weight_kg} kg | Meta: ${user.target_weight ?? "não informado"} kg | Prazo: ${user.target_date ?? "não informado"}
+${hasMacros
+  ? `- Plano: ${user.daily_kcal} kcal/dia | Proteína ${user.protein_g}g | Carbo ${user.carbo_g}g | Gordura ${user.fat_g}g`
+  : `- Plano calórico: ainda não configurado`
+}
+
+REGRAS ABSOLUTAS DE RESPOSTA:
+1. Máximo 2 parágrafos curtos por resposta. Nunca ultrapasse isso.
+2. Proibido: listas numeradas, bullet points, títulos, markdown, texto fragmentado.
+3. Escreva em texto corrido, como um especialista explicando em voz alta durante uma consulta.
+4. Proibido começar com: "Claro!", "Ótima pergunta!", "Com certeza!", ou qualquer outro preâmbulo.
+5. Se faltar dado essencial, faça UMA única pergunta objetiva — nunca mais de uma.
+6. Use os macros do perfil se disponíveis. Se não estiverem, não invente números sem avisar.
+7. Para receitas: descreva naturalmente no texto, sem "Ingredientes:" ou "Modo de preparo:".
+8. Para estagnação: avalie adesão real (fins de semana incluídos), método de pesagem, sono e retenção hídrica antes de sugerir ajuste calórico.
+9. Para sintomas, dor ou suspeita de doença: indique avaliação presencial, sem rodeios.
+10. Nunca prescreva medicamentos ou substitua diagnóstico médico.
+
+PERSONALIDADE:
+- Calmo, racional, equilibrado. Tom de médico centrado, nunca robótico.
+- Se o usuário for rude ou impaciente: responda com serenidade e respeito, nunca com agressividade.
+
+REFERÊNCIAS TÉCNICAS (use quando relevante):
+- Proteína para quem treina: 1.6–2.2 g/kg de peso corporal.
+- Gorduras: 0.6–1.0 g/kg; priorizar fontes insaturadas.
+- Carboidratos: calorias restantes, ajustando por desempenho e recuperação.
+- Déficit para emagrecimento sustentável: 300–500 kcal/dia.
+- Superávit para ganho com mínimo de gordura: 200–350 kcal/dia.
+
+${isFirstMessage
+  ? `PRIMEIRA MENSAGEM: inicie naturalmente com "${saudacao}, ${user.name}." embutido na primeira frase — não como saudação separada.`
+  : `Sem saudação de abertura. A conversa já está em andamento.`
+}
+
+Responda sempre em português brasileiro.`.trim();
+}
+
+// Delay mínimo antes de disparar a API após o usuário enviar mensagem
+const REPLY_BUFFER_MS = 500;
 
 export default function AgenteScreen() {
   const { C } = useTheme();
+  const router = useRouter();
+  const navigation = useNavigation();
   const user = useUserStore((s) => s.user);
   const { messages, isTyping, addMessage, setTyping } = useAgenteStore();
   const [inputText, setInputText] = useState("");
@@ -72,7 +131,32 @@ export default function AgenteScreen() {
   const firstName = user?.name?.split(" ")[0] ?? "você";
   const hasMessages = messages.length > 0;
 
-  // ─── Gravação nativa (iOS/Android) via expo-av ───────────────────────────
+  const handleBack = useCallback(() => {
+    router.replace("/(tabs)/index");
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const unsubscribeBeforeRemove = navigation.addListener("beforeRemove", (e) => {
+        const actionType = e.data.action.type;
+        if (actionType !== "GO_BACK" && actionType !== "POP") return;
+        e.preventDefault();
+        handleBack();
+      });
+
+      const backSub = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleBack();
+        return true;
+      });
+
+      return () => {
+        unsubscribeBeforeRemove();
+        backSub.remove();
+      };
+    }, [navigation, handleBack])
+  );
+
+  // ─── Gravação nativa (iOS/Android) ───────────────────────────────────────
   const startRecordingNative = async () => {
     try {
       const { granted } = await Audio.requestPermissionsAsync();
@@ -99,7 +183,7 @@ export default function AgenteScreen() {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error("URI do áudio não encontrada");
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
       const transcribed = await transcribeAudio(base64, "audio/m4a");
       setIsTranscribing(false);
       if (transcribed) sendMessage(transcribed);
@@ -143,48 +227,41 @@ export default function AgenteScreen() {
     setIsRecording(false);
   };
 
-  // ─── Seletores de plataforma ──────────────────────────────────────────────
   const startRecording = Platform.OS === "web" ? startRecordingWeb : startRecordingNative;
   const stopRecording = Platform.OS === "web" ? stopRecordingWeb : stopRecordingNative;
 
-  // Divide o texto em partes naturais (por frase) e envia com pausas
-  const sendInChunks = async (fullText: string) => {
-    // Quebra por ponto final, exclamação ou interrogação seguido de espaço ou fim
-    const sentences = fullText
-      .split(/(?<=[.!?])\s+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    for (let i = 0; i < sentences.length; i++) {
-      // Pausa proporcional ao tamanho da frase — simula digitação humana
-      const delay = Math.min(400 + sentences[i].length * 18, 1800);
-      await new Promise((res) => setTimeout(res, delay));
-      addMessage({ role: "assistant", content: sentences[i] });
-      flatListRef.current?.scrollToEnd({ animated: true });
-
-      // Mostra "digitando..." entre frases (exceto na última)
-      if (i < sentences.length - 1) {
-        setTyping(true);
-        await new Promise((res) => setTimeout(res, 600));
-      }
+  const handleStop = () => {
+    abortRef.current = true;
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
     }
+    setTyping(false);
   };
 
+  // ─── Uma única bolha por resposta — sem chunks, sem delay artificial ──────
+  const sendAssistantMessage = (fullText: string) => {
+    if (abortRef.current) return;
+    const cleaned = normalizeAssistantReply(fullText);
+    addMessage({ role: "assistant", content: cleaned });
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+  };
+
+  // ─── Processa e envia para a API ──────────────────────────────────────────
   const processMessages = async () => {
     const currentMessages = useAgenteStore.getState().messages;
     const userMessages = currentMessages.filter((m) => m.role === "user");
     if (userMessages.length === 0) return;
 
-    // Pega todas as mensagens acumuladas no buffer para montar o histórico
-    const historyForApi = currentMessages.slice(0, -1);
-
-    // A última mensagem do usuário é a que será enviada
+    // Limita histórico às últimas 12 mensagens para manter qualidade
+    const historyForApi = currentMessages.slice(-13, -1);
     const lastUserMsg = userMessages[userMessages.length - 1];
 
     abortRef.current = false;
 
     try {
-      const systemPrompt = user ? buildSystemPrompt(user) : "";
+      const isFirstMessage = userMessages.length === 1;
+      const systemPrompt = user ? buildSystemPrompt(user, isFirstMessage) : "";
 
       const reply = await sendChatMessage({
         systemPrompt,
@@ -198,13 +275,13 @@ export default function AgenteScreen() {
       if (abortRef.current) return;
 
       setTyping(false);
-      await sendInChunks(reply);
+      sendAssistantMessage(reply);
     } catch (err) {
       console.error("Agente erro:", err);
       setTyping(false);
       addMessage({
         role: "assistant",
-        content: "Desculpe, tive um problema ao processar sua mensagem. Tente novamente.",
+        content: "Tive um problema ao processar sua mensagem. Tente novamente.",
       });
     } finally {
       setTyping(false);
@@ -221,12 +298,12 @@ export default function AgenteScreen() {
     setTyping(true);
     flatListRef.current?.scrollToEnd({ animated: true });
 
-    // Cancela o timer anterior — reinicia o buffer de 5s
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
       abortRef.current = true;
     }
 
+    abortRef.current = false;
     debounceTimer.current = setTimeout(() => {
       processMessages();
     }, REPLY_BUFFER_MS);
@@ -265,16 +342,20 @@ export default function AgenteScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: C.background }]} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
-        <Pressable style={[styles.headerBtn, { backgroundColor: C.surface }]}>
+        <Pressable
+          style={[styles.headerBtn, { backgroundColor: C.surface }]}
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel="Voltar"
+        >
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: C.text }]}>NUTRIFT AI</Text>
+          <Text style={[styles.headerTitle, { color: C.text }]}>Nuti</Text>
           <View style={styles.onlineRow}>
             <View style={[styles.onlineDot, { backgroundColor: C.greenDark }]} />
-            <Text style={[styles.onlineText, { color: C.greenDark }]}>Online</Text>
+            <Text style={[styles.onlineText, { color: C.greenDark }]}>Nutrift Online</Text>
           </View>
         </View>
         <Pressable style={[styles.headerBtn, { backgroundColor: C.surface }]}>
@@ -287,7 +368,6 @@ export default function AgenteScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
-        {/* Área principal */}
         {!hasMessages ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyContent}>
@@ -304,7 +384,9 @@ export default function AgenteScreen() {
               <Text style={[styles.greetingText, { color: C.text }]}>
                 Olá, <Text style={[styles.greetingName, { color: C.green }]}>{firstName}!</Text>
               </Text>
-              <Text style={[styles.greetingSub, { color: C.textSecondary }]}>Como posso ajudar na sua nutrição hoje?</Text>
+              <Text style={[styles.greetingSub, { color: C.textSecondary }]}>
+                Como posso ajudar na sua nutrição hoje?
+              </Text>
               <View style={styles.suggestionsWrap}>
                 {QUICK_SUGGESTIONS.map((s, i) => (
                   <Pressable
@@ -353,24 +435,46 @@ export default function AgenteScreen() {
           />
         )}
 
-        {/* Input — fixo acima da navbar */}
+        {isTyping && (
+          <View style={styles.stopBarWrap}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stopBar,
+                { borderColor: C.border, backgroundColor: C.surface },
+                pressed && { opacity: 0.75 },
+              ]}
+              onPress={handleStop}
+            >
+              <View style={styles.stopIcon}>
+                <View style={[styles.stopSquare, { backgroundColor: C.text }]} />
+              </View>
+              <Text style={[styles.stopText, { color: C.text }]}>Parar resposta</Text>
+            </Pressable>
+          </View>
+        )}
+
         <View style={[styles.inputBar, { backgroundColor: C.background }]}>
           <View style={[styles.inputWrap, { backgroundColor: C.surface, borderColor: C.border }]}>
-            {/* Campo de texto */}
             <TextInput
               style={[styles.input, { color: C.text }]}
-              placeholder={isRecording ? "Gravando..." : isTranscribing ? "Transcrevendo..." : "Pergunte qualquer coisa..."}
+              placeholder={
+                isRecording ? "Gravando..."
+                : isTranscribing ? "Transcrevendo..."
+                : "Pergunte qualquer coisa..."
+              }
               placeholderTextColor={isRecording ? C.error : C.textMuted}
               value={inputText}
               onChangeText={setInputText}
               multiline
               maxLength={500}
-              onSubmitEditing={() => sendMessage(inputText)}
+              blurOnSubmit={false}
+              onSubmitEditing={() => {
+                if (Platform.OS === "web") sendMessage(inputText);
+              }}
               returnKeyType="send"
               editable={!isRecording && !isTranscribing}
             />
 
-            {/* Lado direito: enviar (quando tem texto) + microfone (sempre) */}
             <View style={styles.inputActions}>
               {inputText.trim() && !isTyping && (
                 <Pressable
@@ -419,11 +523,7 @@ export default function AgenteScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-
-  // Header
+  root: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -443,34 +543,12 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  headerCenter: {
-    alignItems: "center",
-    gap: 2,
-  },
-  headerTitle: {
-    ...Typography.label,
-    fontSize: 13,
-    letterSpacing: 1.5,
-  },
-  onlineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  onlineText: {
-    ...Typography.caption,
-    fontWeight: "600",
-  },
-
-  // Tela inicial
-  emptyContainer: {
-    flex: 1,
-  },
+  headerCenter: { alignItems: "center", gap: 2 },
+  headerTitle: { ...Typography.label, fontSize: 13, letterSpacing: 1.5 },
+  onlineRow: { flexDirection: "row", alignItems: "center", gap: Spacing.xs },
+  onlineDot: { width: 7, height: 7, borderRadius: 4 },
+  onlineText: { ...Typography.caption, fontWeight: "600" },
+  emptyContainer: { flex: 1 },
   emptyContent: {
     flex: 1,
     alignItems: "center",
@@ -494,22 +572,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  greetingText: {
-    ...Typography.h2,
-    fontSize: 24,
-    textAlign: "center",
-    marginTop: Spacing.xs,
-  },
+  greetingText: { ...Typography.h2, fontSize: 24, textAlign: "center", marginTop: Spacing.xs },
   greetingName: {},
-  greetingSub: {
-    ...Typography.bodySmall,
-    textAlign: "center",
-    marginBottom: Spacing.lg,
-  },
-  suggestionsWrap: {
-    width: "100%",
-    gap: Spacing.sm,
-  },
+  greetingSub: { ...Typography.bodySmall, textAlign: "center", marginBottom: Spacing.lg },
+  suggestionsWrap: { width: "100%", gap: Spacing.sm },
   suggestionBtn: {
     borderRadius: Radius.xl,
     paddingVertical: Spacing.md,
@@ -517,15 +583,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
   },
-  suggestionBtnPressed: {},
-  suggestionText: {
-    ...Typography.body,
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-
-  // Mensagens
+  suggestionText: { ...Typography.body, fontSize: 14, fontWeight: "600", textAlign: "center" },
   messagesList: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
@@ -538,12 +596,8 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginBottom: Spacing.sm,
   },
-  msgRowUser: {
-    justifyContent: "flex-end",
-  },
-  msgRowAssistant: {
-    justifyContent: "flex-start",
-  },
+  msgRowUser: { justifyContent: "flex-end" },
+  msgRowAssistant: { justifyContent: "flex-start" },
   assistantAvatar: {
     width: 28,
     height: 28,
@@ -551,22 +605,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     flexShrink: 0,
   },
-  assistantAvatarGradient: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  assistantAvatarGradient: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
   bubble: {
     maxWidth: "75%",
     borderRadius: Radius.xl,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
-  bubbleUser: {
-    backgroundColor: Colors.greenDark,
-    borderBottomRightRadius: Radius.sm,
-  },
+  bubbleUser: { backgroundColor: Colors.greenDark, borderBottomRightRadius: Radius.sm },
   bubbleAssistant: {
     borderBottomLeftRadius: Radius.sm,
     shadowColor: "#000",
@@ -575,27 +621,32 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
-  bubbleText: {
-    ...Typography.body,
-    lineHeight: 22,
-  },
-  bubbleTextUser: {
-    color: "#FFF",
-  },
+  bubbleText: { ...Typography.body, lineHeight: 22 },
+  bubbleTextUser: { color: "#FFF" },
   bubbleTextAssistant: {},
-  typingBubble: {
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    minWidth: 60,
+  typingBubble: { paddingVertical: Spacing.md, paddingHorizontal: Spacing.lg, minWidth: 60, alignItems: "center" },
+  stopBarWrap: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.sm, alignItems: "center" },
+  stopBar: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
   },
-
-  // Input — acima da navbar (navbar: bottom 24 + height 60 = 84)
-  inputBar: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-    paddingBottom: 96,
+  stopIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: Colors.textSecondary,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  stopSquare: { width: 7, height: 7, borderRadius: 1.5 },
+  stopText: { ...Typography.caption, fontWeight: "600" },
+  inputBar: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.sm, paddingBottom: 96 },
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -610,48 +661,9 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
   },
-  inputIcon: {
-    flexShrink: 0,
-  },
-  input: {
-    flex: 1,
-    ...Typography.body,
-    maxHeight: 80,
-    paddingVertical: 4,
-  },
-  inputActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    flexShrink: 0,
-  },
-  actionBtn: {
-    flexShrink: 0,
-  },
-  actionBtnPressed: {
-    opacity: 0.75,
-  },
-  actionBtnGradient: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendBtn: {
-    flexShrink: 0,
-  },
-  sendBtnDisabled: {
-    opacity: 0.5,
-  },
-  sendBtnPressed: {
-    opacity: 0.8,
-  },
-  sendBtnGradient: {
-    width: 34,
-    height: 34,
-    borderRadius: Radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  input: { flex: 1, ...Typography.body, maxHeight: 80, paddingVertical: 4 },
+  inputActions: { flexDirection: "row", alignItems: "center", gap: Spacing.xs, flexShrink: 0 },
+  actionBtn: { flexShrink: 0 },
+  actionBtnPressed: { opacity: 0.75 },
+  actionBtnGradient: { width: 32, height: 32, borderRadius: Radius.pill, alignItems: "center", justifyContent: "center" },
 });

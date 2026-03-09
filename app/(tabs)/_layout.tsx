@@ -1,83 +1,53 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { View } from "react-native";
+import { Platform } from "react-native";
 
-import { Radius } from "../../constants/radius";
-import { Spacing } from "../../constants/spacing";
-import { useTheme } from "../../hooks/useTheme";
-
-const TAB_ICON_SIZE = 22;
-const ACTIVE_CIRCLE_SIZE = 40;
-
-function TabIcon({
-  name,
-  nameOutline,
-  focused,
-  C,
-}: {
-  name: React.ComponentProps<typeof Ionicons>["name"];
-  nameOutline: React.ComponentProps<typeof Ionicons>["name"];
-  focused: boolean;
-  C: ReturnType<typeof useTheme>["C"];
-}) {
-  return (
-    <View
-      style={{
-        width: ACTIVE_CIRCLE_SIZE,
-        height: ACTIVE_CIRCLE_SIZE,
-        borderRadius: ACTIVE_CIRCLE_SIZE / 2,
-        backgroundColor: focused ? C.greenLight : "transparent",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Ionicons
-        name={focused ? name : nameOutline}
-        size={TAB_ICON_SIZE}
-        color={focused ? C.text : C.textMuted}
-      />
-    </View>
-  );
-}
+import { Colors } from "../../constants/colors";
 
 export default function TabsLayout() {
-  const { C } = useTheme();
-
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
           position: "absolute",
-          bottom: Spacing.xl,
-          left: Spacing.xl,
-          right: Spacing.xl,
-          height: 60,
-          backgroundColor: C.surfaceMuted,
+          bottom: 20,
+          left: 20,
+          right: 20,
+          height: 64,
+          backgroundColor: Colors.surface,
           borderTopWidth: 0,
-          borderRadius: Radius.pill,
+          borderRadius: 100,
           borderWidth: 1,
-          borderColor: C.border,
+          borderColor: Colors.border,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.1,
-          shadowRadius: 16,
+          shadowOpacity: 0.4,
+          shadowRadius: 32,
           elevation: 8,
-          paddingBottom: Spacing.sm,
-          paddingTop: Spacing.sm,
-          paddingHorizontal: Spacing.sm,
+          paddingBottom: Platform.OS === "ios" ? 20 : 10,
+          paddingTop: 10,
         },
-        tabBarActiveTintColor: C.greenDark,
-        tabBarInactiveTintColor: C.textMuted,
-        tabBarShowLabel: false,
+        tabBarActiveTintColor: Colors.primary,
+        tabBarInactiveTintColor: Colors.textSecondary,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "500",
+          textTransform: "none",
+          marginBottom: Platform.OS === "ios" ? 0 : 4,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Hoje",
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="sunny" nameOutline="sunny-outline" focused={focused} C={C} />
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "sunny" : "sunny-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -85,17 +55,21 @@ export default function TabsLayout() {
         name="progresso"
         options={{
           title: "Progresso",
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="trending-up" nameOutline="trending-up-outline" focused={focused} C={C} />
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons name={focused ? "trending-up" : "trending-up-outline"} size={24} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="agente"
         options={{
-          title: "IA",
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="sparkles" nameOutline="sparkles-outline" focused={focused} C={C} />
+          title: "AI",
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "sparkles" : "sparkles-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -103,8 +77,8 @@ export default function TabsLayout() {
         name="perfil"
         options={{
           title: "Perfil",
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="person" nameOutline="person-outline" focused={focused} C={C} />
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={24} color={color} />
           ),
         }}
       />

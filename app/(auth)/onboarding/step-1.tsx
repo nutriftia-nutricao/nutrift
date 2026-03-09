@@ -2,91 +2,48 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
-import { GradientButton } from "../../../components/ui/GradientButton";
-import { ProgressBar } from "../../../components/onboarding/ProgressBar";
+import { GradientButton } from "../../../components/ui";
+import { OnboardingHeader } from "../../../components/onboarding/OnboardingHeader";
 import { Colors } from "../../../constants/colors";
 import { Radius } from "../../../constants/radius";
 import { Spacing } from "../../../constants/spacing";
 import { Typography } from "../../../constants/typography";
 import { useOnboardingStore } from "../../../stores/useOnboardingStore";
-import type { Sex } from "../../../types/onboarding";
 
 export default function OnboardingStep1Screen() {
-  const { name, sex, setName, setSex } = useOnboardingStore();
+  const { sex, setSex } = useOnboardingStore();
 
   const handleContinue = () => {
-    if (name.trim() && sex) {
+    if (sex) {
       router.push("/(auth)/onboarding/step-2");
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ProgressBar progress={1 / 7} />
+    <View style={styles.root}>
+      <OnboardingHeader step={1} totalSteps={9} subtitle="" showBack={true} fallbackRoute="/(auth)/login" />
 
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentInner}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-          >
-            <Ionicons name="chevron-back" size={22} color={Colors.text} />
-          </Pressable>
-          <View style={styles.stepIndicator}>
-            <View style={styles.stepLinePrimary} />
-            <View style={styles.stepLineSecondary} />
-          </View>
-        </View>
-
         <View style={styles.titleBlock}>
           <Text style={styles.title}>Vamos começar!</Text>
           <Text style={styles.subtitle}>
-            Preencha seus dados básicos para personalizarmos sua experiência de
-            nutrição.
+            Precisamos de algumas informações para personalizar seu plano de nutrição.
           </Text>
         </View>
 
         <View style={styles.fieldBlock}>
-          <Text style={styles.label}>Nome Completo</Text>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Como você quer ser chamado?"
-              placeholderTextColor={Colors.textSecondary}
-              style={styles.input}
-              autoCapitalize="words"
-              autoCorrect={false}
-              returnKeyType="next"
-            />
-            <Ionicons
-              name="person-outline"
-              size={20}
-              color={Colors.green}
-              style={styles.inputIcon}
-            />
-          </View>
-        </View>
-
-        <View style={styles.fieldBlock}>
-          <Text style={styles.label}>Sexo Biológico</Text>
+          <Text style={styles.label}>SEXO BIOLÓGICO</Text>
 
           <View style={styles.sexRow}>
             <SexCard
@@ -114,10 +71,11 @@ export default function OnboardingStep1Screen() {
         <GradientButton
           title="Continuar"
           onPress={handleContinue}
-          disabled={!name.trim() || !sex}
+          disabled={!sex}
+          showArrow
         />
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -140,7 +98,7 @@ function SexCard({ label, icon, selected, onPress }: SexCardProps) {
     >
       {selected && (
         <View style={styles.sexCardCheck}>
-          <Ionicons name="checkmark-circle" size={18} color={Colors.green} />
+          <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
         </View>
       )}
 
@@ -152,8 +110,8 @@ function SexCard({ label, icon, selected, onPress }: SexCardProps) {
       >
         <Ionicons
           name={icon === "male" ? "male" : "female"}
-          size={26}
-          color={selected ? Colors.greenDark : Colors.textSecondary}
+          size={28}
+          color={selected ? "#111111" : Colors.textSecondary}
         />
       </View>
 
@@ -174,57 +132,25 @@ const styles = StyleSheet.create({
   },
   contentInner: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.lg,
     paddingBottom: Spacing.xxl,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: Spacing.lg,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
   pressed: {
     opacity: 0.8,
-  },
-  stepIndicator: {
-    alignItems: "flex-end",
-    gap: 2,
-  },
-  stepLinePrimary: {
-    width: 24,
-    height: 2,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.green,
-    marginBottom: 2,
-  },
-  stepLineSecondary: {
-    width: 16,
-    height: 2,
-    borderRadius: Radius.pill,
-    backgroundColor: `${Colors.green}4D`,
+    transform: [{ scale: 0.98 }],
   },
   titleBlock: {
-    marginTop: Spacing.lg,
     marginBottom: Spacing.xl,
   },
   title: {
     ...Typography.h2,
     color: Colors.text,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   subtitle: {
-    ...Typography.bodySmall,
+    ...Typography.body,
     color: Colors.textSecondary,
+    lineHeight: 22,
   },
   fieldBlock: {
     marginBottom: Spacing.xl,
@@ -232,46 +158,27 @@ const styles = StyleSheet.create({
   label: {
     ...Typography.label,
     color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
-  },
-  inputWrapper: {
-    position: "relative",
-    justifyContent: "center",
-  },
-  input: {
-    height: 56,
-    borderRadius: Radius.xl,
-    paddingHorizontal: Spacing.lg,
-    paddingRight: Spacing.xxl,
-    backgroundColor: Colors.surface,
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    fontFamily: Typography.body.fontFamily,
-    fontSize: Typography.body.fontSize,
-  },
-  inputIcon: {
-    position: "absolute",
-    right: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   sexRow: {
     flexDirection: "row",
-    gap: Spacing.lg,
+    gap: Spacing.md,
   },
   sexCard: {
     flex: 1,
+    height: 140,
     borderRadius: Radius.xl,
     backgroundColor: Colors.surface,
-    borderWidth: 2,
-    borderColor: "transparent",
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
     alignItems: "center",
     justifyContent: "center",
+    gap: Spacing.sm,
   },
   sexCardSelected: {
-    borderColor: Colors.green,
-    backgroundColor: Colors.greenLight,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 2,
   },
   sexCardCheck: {
     position: "absolute",
@@ -279,16 +186,18 @@ const styles = StyleSheet.create({
     right: Spacing.sm,
   },
   sexIconWrapper: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
     borderRadius: Radius.pill,
-    backgroundColor: Colors.border,
+    backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   sexIconWrapperSelected: {
-    backgroundColor: Colors.greenLight,
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   sexLabel: {
     ...Typography.body,
@@ -296,13 +205,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   sexLabelSelected: {
-    color: Colors.greenDark,
+    color: Colors.text,
   },
   helperText: {
     ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: "center",
-    marginTop: Spacing.sm,
+    marginTop: Spacing.md,
     paddingHorizontal: Spacing.lg,
   },
   footer: {
@@ -310,5 +219,7 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     paddingTop: Spacing.lg,
     backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderSubtle,
   },
 });

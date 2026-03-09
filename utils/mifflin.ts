@@ -1,7 +1,6 @@
-import { addWeeks } from "./date";
-import { ActivityMultipliers } from "../constants/macros";
-import { RitmoAjuste } from "../constants/macros";
-import type { Activity, Goal, WeeklyPace } from "../types/onboarding";
+import { addWeeks } from "date-fns";
+import { ActivityMultipliers, RitmoAjuste } from "../constants/macros";
+import type { Activity, Goal, WeeklyPace, Sex } from "../types/onboarding";
 
 export interface NutritionResult {
   tmb: number;
@@ -10,11 +9,12 @@ export interface NutritionResult {
   protein_g: number;
   carbo_g: number;
   fat_g: number;
+  hydration_ml: number;
   target_date: Date;
 }
 
 export function calcularNutricao(user: {
-  sex: "masculino" | "feminino";
+  sex: Sex;
   weight_kg: number;
   height_cm: number;
   age: number;
@@ -23,22 +23,33 @@ export function calcularNutricao(user: {
   target_weight: number;
   weekly_pace: WeeklyPace;
 }): NutritionResult {
+  // 1. TMB (Mifflin-St Jeor)
   const tmb =
     user.sex === "masculino"
       ? 10 * user.weight_kg + 6.25 * user.height_cm - 5 * user.age + 5
       : 10 * user.weight_kg + 6.25 * user.height_cm - 5 * user.age - 161;
 
-  const tdee = Math.round(tmb * ActivityMultipliers[user.activity]);
+  // 2. TDEE
+  const activityMultiplier = ActivityMultipliers[user.activity];
+  const tdee = Math.round(tmb * activityMultiplier);
 
+  // 3. Meta Calórica
   let ajuste = 0;
   if (user.goal === "perder_gordura") {
-    ajuste = RitmoAjuste[user.weekly_pace];
+    // RitmoAjuste maps pace to calorie deficit
+    // Assuming RitmoAjuste is correctly defined in constants/macros.ts
+    // If not, we can define it here or use a formula (7700kcal per kg)
+    // 0.5kg/week = -500kcal/day roughly
+    ajuste = RitmoAjuste[user.weekly_pace] || -500;
   } else if (user.goal === "ganhar_massa") {
-    ajuste = 300;
+    ajuste = 300; // Superávit fixo ou baseado em ritmo?
+  } else {
+    ajuste = 0; // Manter / Só acompanhar
   }
 
   const meta = Math.round(tdee + ajuste);
 
+  // 4. Macros
   let protein_g: number;
   let fat_g: number;
   let carbo_g: number;
@@ -57,22 +68,70 @@ export function calcularNutricao(user: {
     carbo_g = Math.round((meta - protein_g * 4 - fat_g * 9) / 4);
   }
 
-  const semanas =
-    user.goal === "perder_gordura"
-      ? Math.abs(user.weight_kg - user.target_weight) / user.weekly_pace
-      : user.goal === "ganhar_massa"
-        ? Math.abs(user.target_weight - user.weight_kg) / 0.25
-        : 0;
+  // 5. Hidratação
+  // Base
+  let hydration = user.sex === "masculino" ? user.weight_kg * 35 : user.weight_kg * 32;
 
-  const target_date = addWeeks(new Date(), Math.max(semanas, 1));
+  // Ajuste por atividade
+  switch (user.activity) {
+    case "levemente_ativo":
+      hydration += 300;
+      break;
+    case "moderado":
+      hydration += 500;
+      break;
+    case "muito_ativo":
+      hydration += 800;
+      break;
+    default: // sedentario
+      hydration += 0;
+      break;
+  }
+
+  // Ajuste por objetivo
+  switch (user.goal) {
+    case "perder_gordura":
+      hydration += 300;
+      break;
+    case "ganhar_massa":
+      hydration += 200;
+      break;
+    case "manter":
+    case "so_acompanhar":
+      hydration += 300;
+      break;
+  }
+
+  // Arredondar para múltiplos de 100ml
+  const hydration_ml = Math.ceil(hydration / 100) * 100;
+
+  // 6. Data Estimada
+  let weeks = 0;
+  if (user.goal === "perder_gordura") {
+    const diff = user.weight_kg - user.target_weight;
+    if (diff > 0) {
+      weeks = diff / user.weekly_pace;
+    }
+  } else if (user.goal === "ganhar_massa") {
+    const diff = user.target_weight - user.weight_kg;
+    if (diff > 0) {
+      // Assuming 0.25kg/week for gain if not specified, or use weekly_pace if applicable
+      // CLAUDE.md Step 7 says "Ritmo semanal (só para Perder gordura e Ganhar massa)"
+      // So we use user.weekly_pace for gain too.
+      weeks = diff / user.weekly_pace;
+    }
+  }
+
+  const target_date = addWeeks(new Date(), Math.max(Math.ceil(weeks), 1));
 
   return {
     tmb: Math.round(tmb),
-    tdee,
+    tdee: Math.round(tdee),
     meta,
     protein_g,
     carbo_g,
     fat_g,
+    hydration_ml,
     target_date,
   };
 }

@@ -2,6 +2,8 @@
 
 # Cursor IDE
 .cursor/
+.claude/
+desktop.ini
 
 # dependencies
 node_modules/
@@ -43,3 +45,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Expo dev logs
+expo-*.log
+*.err.log
+
+# clone acidental do repo (evitar subpasta nutrift)
+/nutrift/

@@ -7,12 +7,14 @@ import { Colors } from "../../constants/colors";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
+import { ProgressBar } from "./ProgressBar";
 
 interface OnboardingHeaderProps {
   step: number;
   totalSteps: number;
   subtitle?: string;
   showBack?: boolean;
+  fallbackRoute?: string;
 }
 
 export function OnboardingHeader({
@@ -20,12 +22,13 @@ export function OnboardingHeader({
   totalSteps,
   subtitle,
   showBack = true,
+  fallbackRoute,
 }: OnboardingHeaderProps) {
   const handleBack = () => {
-    if (step === 1) {
+    if (router.canGoBack()) {
       router.back();
-    } else {
-      router.back();
+    } else if (fallbackRoute) {
+      router.replace(fallbackRoute as never);
     }
   };
 
@@ -39,6 +42,9 @@ export function OnboardingHeader({
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </Pressable>
       )}
+      <View style={styles.progressContainer}>
+        <ProgressBar progress={step / totalSteps} />
+      </View>
       <View style={styles.stepInfo}>
         <Text style={styles.stepLabel}>
           PASSO {step} DE {totalSteps}
@@ -56,6 +62,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.lg,
+    gap: Spacing.md,
+  },
+  progressContainer: {
+    flex: 1,
+    marginHorizontal: Spacing.sm,
   },
   backButton: {
     width: 36,
@@ -72,15 +83,18 @@ const styles = StyleSheet.create({
   },
   stepInfo: {
     alignItems: "flex-end",
+    minWidth: 80,
   },
   stepLabel: {
     ...Typography.label,
-    color: Colors.greenDark,
+    color: Colors.primary,
     fontWeight: "700",
+    fontSize: 14,
   },
   subtitle: {
     ...Typography.caption,
     color: Colors.textSecondary,
     marginTop: 2,
+    fontSize: 14,
   },
 });

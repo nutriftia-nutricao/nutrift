@@ -17,9 +17,10 @@ export const supabase: SupabaseClient = createClient(
   supabaseAnonKey,
   {
     auth: {
-      detectSessionInUrl: isWeb,
+      detectSessionInUrl: true,
       persistSession: true,
       autoRefreshToken: true,
+      storage: isWeb && typeof window !== "undefined" ? window.localStorage : undefined,
     },
   }
 );

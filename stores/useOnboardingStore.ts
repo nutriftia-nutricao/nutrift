@@ -1,11 +1,14 @@
 import { create } from "zustand";
 import type {
   OnboardingData,
+  OnboardingMealEntry,
   Sex,
   Goal,
   Activity,
   WeeklyPace,
-  DietStyle,
+  DietType,
+  Restriction,
+  WorkoutType,
 } from "../types/onboarding";
 import { DEFAULT_ONBOARDING } from "../types/onboarding";
 
@@ -16,13 +19,18 @@ interface OnboardingState extends OnboardingData {
   setAge: (age: number) => void;
   setWeight: (weight_kg: number) => void;
   setHeight: (height_cm: number) => void;
+  setBodyFatPct: (body_fat_pct: number | null) => void;
   setGoal: (goal: Goal) => void;
   setTargetWeight: (target_weight: number) => void;
   setTargetBodyFatPct: (pct: number | null) => void;
   setWeeklyPace: (pace: WeeklyPace) => void;
   setActivity: (activity: Activity) => void;
-  setDietStyle: (style: DietStyle) => void;
+  setWorkoutType: (type: WorkoutType) => void;
+  setWorkoutTime: (time: string | null) => void;
+  setDietType: (type: DietType) => void;
+  toggleRestriction: (restriction: Restriction) => void;
   setMealsPerDay: (meals: number) => void;
+  setMeals: (meals: OnboardingMealEntry[]) => void;
   toggleLikedFood: (food: string) => void;
   reset: () => void;
 }
@@ -44,6 +52,7 @@ export const useOnboardingStore = create<OnboardingState>((set) => ({
             : weight_kg,
     })),
   setHeight: (height_cm) => set({ height_cm }),
+  setBodyFatPct: (body_fat_pct) => set({ body_fat_pct }),
   setGoal: (goal) =>
     set((s) => ({
       goal,
@@ -59,8 +68,20 @@ export const useOnboardingStore = create<OnboardingState>((set) => ({
   setTargetBodyFatPct: (target_body_fat_pct) => set({ target_body_fat_pct }),
   setWeeklyPace: (weekly_pace) => set({ weekly_pace }),
   setActivity: (activity) => set({ activity }),
-  setDietStyle: (diet_style) => set({ diet_style }),
+  setWorkoutType: (workout_type) => set({ workout_type }),
+  setWorkoutTime: (workout_time) => set({ workout_time }),
+  setDietType: (diet_type) => set({ diet_type }),
+  toggleRestriction: (restriction) =>
+    set((state) => {
+      const exists = state.restrictions.includes(restriction);
+      return {
+        restrictions: exists
+          ? state.restrictions.filter((r) => r !== restriction)
+          : [...state.restrictions, restriction],
+      };
+    }),
   setMealsPerDay: (meals_per_day) => set({ meals_per_day }),
+  setMeals: (meals) => set({ meals }),
   toggleLikedFood: (food) =>
     set((state) => {
       const exists = state.liked_foods.includes(food);

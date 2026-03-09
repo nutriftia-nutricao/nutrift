@@ -6,13 +6,18 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web --port 19006",
+    "web:8081": "expo start --web --port 8081",
+    "web:8082": "expo start --web --port 8082 --offline",
+    "open:8082": "start http://localhost:8082",
+    "web:open": "expo start --web --port 19006 --no-dev-client"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@google/generative-ai": "^0.24.1",
     "@gorhom/bottom-sheet": "^5.2.8",
     "@hookform/resolvers": "^5.2.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@shopify/flash-list": "2.0.2",
     "@supabase/supabase-js": "^2.97.0",
@@ -27,6 +32,7 @@
     "expo-linking": "~8.0.11",
     "expo-notifications": "~0.32.0",
     "expo-router": "~6.0.23",
+    "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
     "lottie-react-native": "^7.3.6",
@@ -44,6 +50,7 @@
     "react-native-svg": "15.12.1",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.5.1",
+    "stacktrace-parser": "^0.1.11",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },

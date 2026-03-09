@@ -2,11 +2,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { addDays, format, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,7 +19,6 @@ import { HydrationModal } from "../../components/home/HydrationModal";
 import { StreakCelebrationModal } from "../../components/home/StreakCelebrationModal";
 import { Colors } from "../../constants/colors";
 import { useTheme } from "../../hooks/useTheme";
-import { GradientColors } from "../../constants/gradients";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
@@ -29,21 +27,40 @@ import { useHydrationStore } from "../../stores/useHydrationStore";
 import { useNutritionStore } from "../../stores/useNutritionStore";
 import { useUserStore } from "../../stores/useUserStore";
 import { useWeeklyPlanStore } from "../../stores/useWeeklyPlanStore";
-import { MEAL_TYPE_LABELS as MEAL_LABELS } from "../../types/nutrition";
-import type { MealType } from "../../types/nutrition";
-import { fetchFoodLogsForDateRange } from "../../services/nutrition";
 import {
+  MEAL_TYPE_LABELS as MEAL_LABELS,
   getMealTypesForDisplay,
-  MEAL_TYPE_LABELS,
+  type MealType,
 } from "../../types/nutrition";
-import type { FoodLogEntry } from "../../types/nutrition";
+import { LinearGradient } from "expo-linear-gradient";
 import { getTodayISO } from "../../utils/date";
+import { ProgressBar } from "../../components/ui";
+import type { WeeklyPlanStatus } from "../../stores/useWeeklyPlanStore";
+
+/** Valores fictícios para visualizar a barra e cards quando não há dados reais (~67% da meta) */
+const DEMO_VALUES = {
+  kcal: 1420,
+  kcalGoal: 2100,
+  protein_g: 98,
+  protein_goal: 160,
+  carbo_g: 145,
+  carbo_goal: 240,
+  fat_g: 44,
+  fat_goal: 65,
+  activityMin: 45,
+  activityGoal: 60,
+  waterL: 2.1,
+  waterGoal: 3.4,
+};
 
 const MEAL_TIMES: Record<MealType, string> = {
   cafe: "07:30",
+  lanche_manha: "10:00",
   almoco: "12:00",
   lanche: "16:00",
   jantar: "19:30",
+  pre_treino: "06:30",
+  pos_treino: "21:30",
   extra: "—",
 };
 
@@ -53,6 +70,189 @@ function getGreeting(): string {
   if (h < 18) return "Boa tarde";
   return "Boa noite";
 }
+
+/** Data formatada como no Stitch: "Sábado, 7 de março" */
+function getFormattedDate(): string {
+  const str = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+const BAR_HEIGHT = 30;
+const BAR_WIDTH = 6;
+const BAR_GAP = 3;
+
+/** Barra de progresso com várias barrinhas verticais (mesma altura e largura) até o final da linha */
+function VerticalBarsProgress({ progress }: { progress: number }) {
+  const target = Math.min(1, Math.max(0, progress));
+  const animValue = useRef(new Animated.Value(0)).current;
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  const barCount = containerWidth > 0
+    ? Math.max(1, Math.floor((containerWidth + BAR_GAP) / (BAR_WIDTH + BAR_GAP)))
+    : 42;
+
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: target,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [target]);
+
+  return (
+    <View
+      style={verticalBarsStyles.wrap}
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
+      {Array.from({ length: barCount }).map((_, i) => {
+        const segmentStart = i / barCount;
+        const segmentEnd = (i + 1) / barCount;
+        const heightAnim = animValue.interpolate({
+          inputRange: [segmentStart, segmentEnd],
+          outputRange: [0, BAR_HEIGHT],
+          extrapolate: "clamp",
+        });
+        return (
+          <View key={i} style={verticalBarsStyles.bar}>
+            <View style={[verticalBarsStyles.barBg, { height: BAR_HEIGHT }]} />
+            <Animated.View
+              style={[
+                verticalBarsStyles.barFill,
+                { height: heightAnim },
+              ]}
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const verticalBarsStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: BAR_GAP,
+    height: BAR_HEIGHT,
+    marginVertical: Spacing.md,
+    width: "100%",
+    alignSelf: "stretch",
+    color: "rgba(44, 44, 44, 1)",
+  },
+  bar: {
+    width: BAR_WIDTH,
+    height: BAR_HEIGHT,
+    borderRadius: 2,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  barBg: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#3A3A3A",
+    borderRadius: 2,
+  },
+  barFill: {
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+    width: "100%",
+  },
+});
+
+/** Barra de macro com animação e efeito de sombra na parte não preenchida (até o fim do card) */
+function AnimatedMacroFill({ progress, color }: { progress: number; color: string }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: Math.min(1, Math.max(0, progress)),
+      duration: 600,
+      useNativeDriver: false,
+    }).start();
+  }, [progress]);
+  return (
+    <View style={styles.macroTrackWrapper}>
+      <LinearGradient
+        colors={["#404040", "#383838", "#2A2A2A"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <Animated.View
+        style={[
+          styles.macroFill,
+          {
+            backgroundColor: color,
+            width: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: ["0%", "100%"],
+            }),
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+/** Wrapper que anima entrada do card (fade + slide) com delay opcional */
+function AnimatedCard({
+  children,
+  style,
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  style?: any;
+  delay?: number;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(12)).current;
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Emojis por tipo de refeição (estilo Stitch) */
+const MEAL_EMOJI: Record<MealType, string> = {
+  cafe: "☕",
+  lanche_manha: "🍎",
+  almoco: "🍽️",
+  lanche: "🥪",
+  jantar: "🌙",
+  pre_treino: "💪",
+  pos_treino: "🥤",
+  extra: "🍴",
+};
 
 const STREAK_CELEBRATION_THRESHOLD = 5;
 
@@ -64,21 +264,21 @@ export default function HomeScreen() {
   const [showHydrationModal, setShowHydrationModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => getTodayISO());
-  const [weekMealStatus, setWeekMealStatus] = useState<Record<string, "all" | "one_missed">>({});
   const hasShownCelebrationThisSession = useRef(false);
 
   const user = useUserStore((s) => s.user);
+  const today = getTodayISO();
   const {
     logs,
-    totals,
     streak,
     isLoading,
     loadForDate,
-    confirmMeal,
   } = useNutritionStore();
   
   const weeklyPlanStore = useWeeklyPlanStore();
+  /** Refeições do dia selecionado no calendário (lista + consumo + indicadores). */
   const plannedMeals = weeklyPlanStore.getPlansForDate(selectedCalendarDate);
+  const weeklyPlanStatus: WeeklyPlanStatus = weeklyPlanStore.status;
 
   useEffect(() => {
     if (
@@ -91,7 +291,6 @@ export default function HomeScreen() {
     }
   }, [streak, isLoading]);
 
-  const today = getTodayISO();
   const weekStart = useMemo(
     () => startOfWeek(new Date(selectedCalendarDate + "T12:00:00"), { weekStartsOn: 1 }),
     [selectedCalendarDate]
@@ -100,13 +299,8 @@ export default function HomeScreen() {
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
-  const monthYearLabel = useMemo(() => {
-    const str = format(weekStart, "MMMM yyyy", { locale: ptBR });
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  }, [weekStart]);
 
   const weekStartISO = format(weekStart, "yyyy-MM-dd");
-  const weekEndISO = format(weekDays[6], "yyyy-MM-dd");
 
   useFocusEffect(
     useCallback(() => {
@@ -118,60 +312,102 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!user?.id) return;
-    const mealsPerDayCount = user.meals_per_day ?? 4;
-    const expectedMealTypes = getMealTypesForDisplay(mealsPerDayCount);
-    const expectedCount = expectedMealTypes.length;
+    weeklyPlanStore.loadWeeklyPlan(user.id, weekStartISO);
+  }, [user?.id, weekStartISO]);
 
-    let cancelled = false;
-    (async () => {
-      const logs = await fetchFoodLogsForDateRange(user.id, weekStartISO, weekEndISO);
-      if (cancelled) return;
-      const byDate = new Map<string, FoodLogEntry[]>();
-      for (const log of logs) {
-        const list = byDate.get(log.date) ?? [];
-        list.push(log);
-        byDate.set(log.date, list);
-      }
-      const status: Record<string, "all" | "one_missed"> = {};
-      for (const d of weekDays) {
-        const iso = d.toISOString().slice(0, 10);
-        const dayLogs = byDate.get(iso) ?? [];
-        const confirmedMeals = new Set<MealType>();
-        for (const log of dayLogs) {
-          if (log.confirmed) confirmedMeals.add(log.meal_type);
-        }
-        const n = confirmedMeals.size;
-        if (n === expectedCount) status[iso] = "all";
-        else if (n === expectedCount - 1) status[iso] = "one_missed";
-      }
-      setWeekMealStatus(status);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, user?.meals_per_day, weekStartISO, weekEndISO, weekDays]);
+  // Sincroniza meta de hidratação do plano do usuário para o store
+  useEffect(() => {
+    if (user?.hydration_ml && user.hydration_ml > 0) {
+      useHydrationStore.getState().setWaterGoalL(user.hydration_ml / 1000);
+    }
+  }, [user?.hydration_ml]);
 
   const userName = user?.name?.trim() || "Usuário";
+  const firstName = userName.split(" ")[0] || userName;
   const kcalGoal = user?.daily_kcal ?? 2000;
-  const kcalConsumed = totals.kcal;
-  const kcalPct = kcalGoal > 0 ? Math.min(100, Math.round((kcalConsumed / kcalGoal) * 100)) : 0;
 
-  const macroGoals = useMemo(
-    () => [
-      { label: "Proteína", value: Math.round(totals.protein_g), goal: user?.protein_g ?? 120, color: Colors.protein },
-      { label: "Carbos", value: Math.round(totals.carbo_g), goal: user?.carbo_g ?? 250, color: Colors.carbo },
-      { label: "Gordura", value: Math.round(totals.fat_g), goal: user?.fat_g ?? 65, color: Colors.fat },
-    ],
-    [totals, user]
-  );
+  /** Totais do dia selecionado: refeições do plano cujos alimentos foram marcados como consumidos. */
+  const plannedCheckedTotals = useMemo(() => {
+    let kcal = 0;
+    let protein_g = 0;
+    let carbo_g = 0;
+    let fat_g = 0;
+    for (const meal of plannedMeals) {
+      for (const food of meal.foods) {
+        if (food.checked) {
+          kcal += food.kcal;
+          protein_g += food.protein_g;
+          carbo_g += food.carbo_g;
+          fat_g += food.fat_g;
+        }
+      }
+    }
+    return { kcal, protein_g, carbo_g, fat_g };
+  }, [plannedMeals]);
+
+  /** Consumo diário = só as refeições de hoje (itens marcados). Usa valores fictícios quando zerado para visualização. Meta sempre vem do perfil do usuário. */
+  const useDemoConsumption = plannedCheckedTotals.kcal === 0;
+  const kcalConsumed = useDemoConsumption ? DEMO_VALUES.kcal : plannedCheckedTotals.kcal;
+  const displayKcalGoal = kcalGoal;
+  const kcalPct =
+    displayKcalGoal > 0
+      ? Math.min(100, Math.round((kcalConsumed / displayKcalGoal) * 100))
+      : 0;
+
+  const macroGoals = useMemo(() => {
+    const proteinGoal = user?.protein_g ?? 120;
+    const carboGoal = user?.carbo_g ?? 250;
+    const fatGoal = user?.fat_g ?? 65;
+    if (useDemoConsumption) {
+      return [
+        { label: "Proteína", value: DEMO_VALUES.protein_g, goal: proteinGoal, color: Colors.protein },
+        { label: "Carbos", value: DEMO_VALUES.carbo_g, goal: carboGoal, color: Colors.carbo },
+        { label: "Gordura", value: DEMO_VALUES.fat_g, goal: fatGoal, color: Colors.fat },
+      ];
+    }
+    return [
+      { label: "Proteína", value: Math.round(plannedCheckedTotals.protein_g), goal: proteinGoal, color: Colors.protein },
+      { label: "Carbos", value: Math.round(plannedCheckedTotals.carbo_g), goal: carboGoal, color: Colors.carbo },
+      { label: "Gordura", value: Math.round(plannedCheckedTotals.fat_g), goal: fatGoal, color: Colors.fat },
+    ];
+  }, [plannedCheckedTotals, user, useDemoConsumption]);
 
   const mealsPerDay = user?.meals_per_day ?? 4;
   const mealTypesToShow = getMealTypesForDisplay(mealsPerDay);
+
+  /** Título da seção de refeições: "Refeições de hoje" ou "Refeições de qua., 5 mar" conforme o dia selecionado. */
+  const mealsSectionTitle = useMemo(() => {
+    if (selectedCalendarDate === today) return "Refeições de hoje";
+    const d = new Date(selectedCalendarDate + "T12:00:00");
+    const dayName = format(d, "EEE", { locale: ptBR }).replace(/\.$/, "");
+    const dayMonth = format(d, "d MMM", { locale: ptBR });
+    return `Refeições de ${dayName}, ${dayMonth}`;
+  }, [selectedCalendarDate, today]);
+
+  /** Título do card de consumo: "Consumo diário" (hoje) ou "Consumo do dia — qua., 5 mar". */
+  const consumptionCardTitle = useMemo(() => {
+    if (selectedCalendarDate === today) return "Consumo diário";
+    const d = new Date(selectedCalendarDate + "T12:00:00");
+    const dayName = format(d, "EEE", { locale: ptBR }).replace(/\.$/, "");
+    const dayMonth = format(d, "d MMM", { locale: ptBR });
+    return `Consumo do dia — ${dayName}, ${dayMonth}`;
+  }, [selectedCalendarDate, today]);
 
   const clampPct = useCallback((value: number) => {
     if (!Number.isFinite(value)) return 0;
     return Math.max(0, Math.min(999, Math.round(value)));
   }, []);
+
+  const handleChangeWeek = useCallback(
+    (direction: "prev" | "next") => {
+      const current = new Date(selectedCalendarDate + "T12:00:00");
+      const delta = direction === "prev" ? -7 : 7;
+      const nextDate = addDays(current, delta);
+      const iso = format(nextDate, "yyyy-MM-dd");
+      setSelectedCalendarDate(iso);
+    },
+    [selectedCalendarDate]
+  );
 
   const mealsForDisplay = useMemo(() => {
     const proteinGoalPerMeal = (user?.protein_g ?? 120) / Math.max(1, mealsPerDay);
@@ -190,7 +426,7 @@ export default function HomeScreen() {
       const status = allConfirmed ? "done" : hasLogs ? "open" : "pending";
       return {
         key,
-        title: MEAL_TYPE_LABELS[key],
+        title: MEAL_LABELS[key],
         time: MEAL_TIMES[key],
         kcal: Math.round(mealKcal),
         macros: {
@@ -221,14 +457,20 @@ export default function HomeScreen() {
   const waterTotalMl = useHydrationStore((s) => s.getTotalMlForDate(todayForWater));
   const waterGoal = useHydrationStore((s) => s.waterGoalL);
   const waterLiters = waterTotalMl / 1000;
+  const useDemoWater = waterLiters === 0;
+  const displayWaterL = useDemoWater ? DEMO_VALUES.waterL : waterLiters;
+  const displayWaterGoal = useDemoWater ? DEMO_VALUES.waterGoal : waterGoal;
   const waterPct =
-    waterGoal > 0 ? Math.min(100, Math.round((waterLiters / waterGoal) * 100)) : 0;
+    displayWaterGoal > 0 ? Math.min(100, Math.round((displayWaterL / displayWaterGoal) * 100)) : 0;
 
   const activityMinutes = useActivityStore((s) => s.getTotalMinutesForDate(todayForWater));
   const activityGoalMinutes = useActivityStore((s) => s.goalMinutesPerDay);
+  const useDemoActivity = activityMinutes === 0;
+  const displayActivityMin = useDemoActivity ? DEMO_VALUES.activityMin : activityMinutes;
+  const displayActivityGoal = useDemoActivity ? DEMO_VALUES.activityGoal : activityGoalMinutes;
   const activityPct =
-    activityGoalMinutes > 0
-      ? Math.min(100, Math.round((activityMinutes / activityGoalMinutes) * 100))
+    displayActivityGoal > 0
+      ? Math.min(100, Math.round((displayActivityMin / displayActivityGoal) * 100))
       : 0;
 
   const formatIntBR = useCallback((n: number) => {
@@ -243,10 +485,6 @@ export default function HomeScreen() {
     if (!user?.id) return;
     const ok = await confirmMeal(user.id, mealKey as MealType);
     if (ok) setExpandedMeal(null);
-  };
-
-  const handleSemanaPress = () => {
-    router.push("/plano-semanal");
   };
 
   if (isLoading && logs.length === 0) {
@@ -267,17 +505,19 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Header — estilo Stitch: Bom dia, Nome 👋 + data */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {userName.slice(0, 2).toUpperCase()}
+                {firstName.slice(0, 1).toUpperCase()}
               </Text>
             </View>
             <View>
-              <Text style={styles.greetingLabel}>{getGreeting()},</Text>
-              <Text style={styles.greetingName}>{userName}</Text>
+              <Text style={styles.greetingName}>
+                {getGreeting()}, {firstName} 👋
+              </Text>
+              <Text style={styles.greetingLabel}>{getFormattedDate()}</Text>
             </View>
           </View>
           <Pressable style={styles.notifButton}>
@@ -285,22 +525,6 @@ export default function HomeScreen() {
             <View style={styles.notifDot} />
           </Pressable>
         </View>
-
-        {/* Streak — em desenvolvimento: segurar para simular o card de 5 dias */}
-        <Pressable
-          style={styles.streakPill}
-          onLongPress={() => {
-            if (__DEV__) {
-              setShowCelebrationStreak(STREAK_CELEBRATION_THRESHOLD);
-            }
-          }}
-          delayLongPress={600}
-        >
-          <Ionicons name="flame" size={16} color={Colors.greenDark} />
-          <Text style={styles.streakText}>
-            {streak} {streak === 1 ? "dia" : "dias"} em sequência
-          </Text>
-        </Pressable>
 
         <StreakCelebrationModal
           visible={showCelebrationStreak !== null}
@@ -320,63 +544,80 @@ export default function HomeScreen() {
           date={todayForWater}
         />
 
-        {/* Card calorias */}
-        <View style={styles.card}>
-          <View style={styles.kcalRow}>
-            <View>
-              <Text style={styles.kcalValue}>
-                {kcalConsumed}{" "}
-                <Text style={styles.kcalUnit}>kcal consumidas</Text>
-              </Text>
-              <Text style={styles.kcalGoalText}>Meta diária: {kcalGoal} kcal</Text>
+        {/* Card consumo diário — estilo Stitch */}
+        <AnimatedCard style={styles.card}>
+          <View style={styles.consumptionTitleRow}>
+            <View style={styles.consumptionTitleLeft}>
+              <Ionicons name="flash" size={18} color="#FACC15" style={styles.consumptionTitleIcon} />
+              <Text style={styles.consumptionTitle}>{consumptionCardTitle}</Text>
             </View>
-            <Text style={styles.kcalPct}>{kcalPct}%</Text>
+            {streak > 0 && (
+              <Pressable
+                style={styles.streakBadge}
+                onLongPress={() => {
+                  if (__DEV__) setShowCelebrationStreak(STREAK_CELEBRATION_THRESHOLD);
+                }}
+                delayLongPress={600}
+              >
+                <Ionicons name="flame" size={14} color={Colors.carbo} />
+                <Text style={styles.streakBadgeText}>
+                  {streak} {streak === 1 ? "dia" : "dias"}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
-          {/* Barra de progresso */}
-          <View style={styles.progressTrack}>
-            <LinearGradient
-              colors={GradientColors.primary}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.progressFill, { width: `${kcalPct}%` as any }]}
-            />
-          </View>
+          <Text style={styles.kcalBig}>
+            {formatIntBR(kcalConsumed)}
+            <Text style={styles.kcalBigUnit}> kcal</Text>
+          </Text>
+          <Text style={styles.kcalMeta}>Meta: {formatIntBR(displayKcalGoal)} kcal</Text>
 
-          {/* Macros */}
+          <VerticalBarsProgress progress={kcalPct / 100} />
+
           <View style={styles.macroRow}>
-            {macroGoals.map((m) => {
+            {[
+              { ...macroGoals[0], labelCap: "PROTEÍNA" },
+              { ...macroGoals[1], labelCap: "CARBOS" },
+              { ...macroGoals[2], labelCap: "GORDURA" },
+            ].map((m, index) => {
               const pct = m.goal > 0 ? Math.min(100, Math.round((m.value / m.goal) * 100)) : 0;
               return (
-                <View key={m.label} style={styles.macroItem}>
-                  <Text style={styles.macroLabel}>{m.label}</Text>
-                  <Text style={styles.macroValue}>
-                    {m.value}g{" "}
-                    <Text style={styles.macroGoal}>/ {m.goal}g</Text>
-                  </Text>
-                  <View style={styles.macroTrack}>
-                    <View
-                      style={[
-                        styles.macroFill,
-                        { width: `${pct}%` as any, backgroundColor: m.color },
-                      ]}
-                    />
+                <React.Fragment key={m.label}>
+                  {index > 0 && <View style={styles.macroDivider} />}
+                  <View style={styles.macroItem}>
+                    <Text style={styles.macroLabel}>{m.labelCap}</Text>
+                    <Text style={styles.macroValue}>
+                      {m.value}g <Text style={styles.macroGoal}>/ {m.goal}g</Text>
+                    </Text>
+                    <AnimatedMacroFill progress={pct / 100} color={m.color} />
                   </View>
-                </View>
+                </React.Fragment>
               );
             })}
           </View>
-        </View>
 
-        {/* Mini cards — Atividade + Hidratação */}
-        <View style={styles.miniCardRow}>
+          <View style={styles.consumptionFooter}>
+            <View style={styles.gastasRow}>
+              <Ionicons name="flame" size={14} color={Colors.carbo} />
+              <Text style={styles.gastasTextWhite}>Gastas: 320 kcal</Text>
+            </View>
+            <Text style={styles.disponivelText}>
+              Disponível: +{formatIntBR(Math.max(0, displayKcalGoal - kcalConsumed))} kcal
+            </Text>
+          </View>
+        </AnimatedCard>
+
+        {/* Mini cards — ATIVIDADE + HIDRATAÇÃO (estilo Stitch) */}
+        <AnimatedCard style={styles.miniCardRow} delay={80}>
           <Pressable
             style={[styles.miniCard, { flex: 1 }]}
             onPress={() => setShowActivityModal(true)}
           >
             <View style={styles.miniCardHeader}>
-              <View style={[styles.miniCardIcon, { backgroundColor: Colors.carboBg }]}>
-                <Ionicons name="flame" size={20} color={Colors.carbo} />
+              <View style={styles.miniCardTitleRow}>
+                <Ionicons name="bicycle-outline" size={18} color={Colors.text} />
+                <Text style={styles.miniCardLabelCaps}>ATIVIDADE</Text>
               </View>
               <Pressable
                 style={styles.miniAddButton}
@@ -388,20 +629,10 @@ export default function HomeScreen() {
                 <Ionicons name="add" size={14} color="#FFF" />
               </Pressable>
             </View>
-            <View style={styles.activityTopRow}>
-              <Text style={styles.miniCardLabel}>Atividade</Text>
-              <Text style={styles.activityMetaText}>
-                {formatIntBR(activityMinutes)} de {formatIntBR(activityGoalMinutes)} min
-              </Text>
-            </View>
-            <View style={styles.activityProgressTrack}>
-              <LinearGradient
-                colors={GradientColors.primary}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.activityProgressFill, { width: `${activityPct}%` as any }]}
-              />
-            </View>
+            <Text style={styles.miniCardValue}>
+              {formatIntBR(displayActivityMin)} / {formatIntBR(displayActivityGoal)} min
+            </Text>
+            <ProgressBar progress={activityPct / 100} color={Colors.carbo} />
           </Pressable>
 
           <Pressable
@@ -409,8 +640,9 @@ export default function HomeScreen() {
             onPress={() => setShowHydrationModal(true)}
           >
             <View style={styles.miniCardHeader}>
-              <View style={[styles.miniCardIcon, { backgroundColor: Colors.blueBg }]}>
-                <Ionicons name="water-outline" size={20} color={Colors.blue} />
+              <View style={styles.miniCardTitleRow}>
+                <Ionicons name="water-outline" size={18} color={Colors.text} />
+                <Text style={styles.miniCardLabelCaps}>HIDRATAÇÃO</Text>
               </View>
               <Pressable
                 style={styles.miniAddButton}
@@ -422,108 +654,147 @@ export default function HomeScreen() {
                 <Ionicons name="add" size={14} color="#FFF" />
               </Pressable>
             </View>
-            <View style={styles.waterTopRow}>
-              <Text style={styles.miniCardLabel}>Hidratação</Text>
-              <Text style={styles.waterMetaText}>
-                {waterLiters.toFixed(1)} / {waterGoal.toFixed(1)} L
-              </Text>
-            </View>
-            <View style={styles.waterProgressTrack}>
-              <LinearGradient
-                colors={[Colors.blue, Colors.blueDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.waterProgressFill, { width: `${waterPct}%` as any }]}
-              />
-            </View>
-          </Pressable>
-        </View>
-
-        {/* Calendário semanal */}
-        <View style={styles.calendarSection}>
-          <Text style={styles.calendarMonthTitle}>{monthYearLabel}</Text>
-          <View style={styles.calendarWeekRow}>
-            {weekDays.map((d) => {
-              const iso = d.toISOString().slice(0, 10);
-              const isSelected = iso === selectedCalendarDate;
-              const dayAbbr = format(d, "EEE", { locale: ptBR }).toUpperCase().slice(0, 3);
-              const dayNum = format(d, "d");
-              const mealStatus = weekMealStatus[iso];
-              return (
-                <Pressable
-                  key={iso}
-                  style={[styles.calendarDayCard, isSelected && styles.calendarDayCardSelected]}
-                  onPress={() => setSelectedCalendarDate(iso)}
-                >
-                  <View style={[styles.calendarDayTop, isSelected && styles.calendarDayTopSelected]}>
-                    {mealStatus != null && (
-                      <View
-                        style={[
-                          styles.calendarDayIndicator,
-                          mealStatus === "all" && styles.calendarDayIndicatorGreen,
-                          mealStatus === "one_missed" && styles.calendarDayIndicatorRed,
-                        ]}
-                      />
-                    )}
-                    <Text style={[styles.calendarDayAbbr, isSelected && styles.calendarDayAbbrSelected]}>
-                      {dayAbbr}
-                    </Text>
-                  </View>
-                  <View style={styles.calendarDayBottom}>
-                    <Text style={[styles.calendarDayNum, isSelected && styles.calendarDayNumSelected]}>
-                      {dayNum}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Refeições */}
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Refeições</Text>
-            <Text style={styles.sectionSubtitle}>
-              Você costuma fazer {mealsPerDay}{" "}
-              {mealsPerDay === 1 ? "refeição" : "refeições"} por dia
+            <Text style={styles.miniCardValue}>
+              {displayWaterL.toFixed(1).replace(".", ",")} / {displayWaterGoal.toFixed(1).replace(".", ",")} L
             </Text>
-          </View>
-          <View style={styles.mealToggle}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.mealToggleBtn,
-                  styles.mealToggleBtnActive,
-                  pressed && styles.mealToggleBtnHover,
-                ]}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
-              >
-                <Text style={styles.mealToggleTextActive}>Hoje</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.mealToggleBtn,
-                  pressed && styles.mealToggleBtnHover,
-                ]}
-                onPress={handleSemanaPress}
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-              >
-                <Text style={styles.mealToggleTextInactive}>Semana</Text>
-              </Pressable>
+            <ProgressBar progress={waterPct / 100} color={Colors.blue} />
+          </Pressable>
+        </AnimatedCard>
+
+        {/* Calendário semanal — estilo Stitch acima das refeições */}
+        <View style={styles.calendarSection}>
+          <View style={styles.calendarRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.calendarArrow,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => handleChangeWeek("prev")}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={18}
+                color={Colors.textSecondary}
+              />
+            </Pressable>
+
+            <View style={styles.calendarWeekRow}>
+              {weekDays.map((d) => {
+                const iso = format(d, "yyyy-MM-dd");
+                const isSelected = iso === selectedCalendarDate;
+                const mealsForDate = weeklyPlanStore.getPlansForDate(iso);
+                const hasPlan = mealsForDate.length > 0;
+                const allMealsComplete =
+                  hasPlan &&
+                  mealsForDate.every(
+                    (meal) =>
+                      meal.foods.length > 0 &&
+                      meal.foods.every((food) => food.checked)
+                  );
+                const hasAnyChecked =
+                  hasPlan &&
+                  mealsForDate.some((meal) =>
+                    meal.foods.some((food) => food.checked)
+                  );
+
+                const status: "none" | "incomplete" | "complete" =
+                  allMealsComplete
+                    ? "complete"
+                    : hasAnyChecked || hasPlan
+                      ? "incomplete"
+                      : "none";
+
+                const dayNum = format(d, "d");
+                const dayAbbr = format(d, "EEE", {
+                  locale: ptBR,
+                }).toUpperCase();
+
+                return (
+                  <Pressable
+                    key={iso}
+                    style={({ pressed }) => [
+                      styles.calendarDayCard,
+                      status === "complete" && styles.calendarDayCardComplete,
+                      status === "incomplete" &&
+                        styles.calendarDayCardIncomplete,
+                      isSelected && styles.calendarDayCardSelected,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => setSelectedCalendarDate(iso)}
+                  >
+                    <View style={styles.calendarDayTop}>
+                      <Text style={styles.calendarDayNum}>{dayNum}</Text>
+                    </View>
+                    <View style={styles.calendarDayBottom}>
+                      <Text style={styles.calendarDayAbbr}>{dayAbbr}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.calendarArrow,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => handleChangeWeek("next")}
+            >
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={Colors.textSecondary}
+              />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Refeições de hoje — título apenas (estilo Stitch) */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Refeições de hoje</Text>
         </View>
 
         <View style={styles.mealsColumn}>
+          {weeklyPlanStatus === "loading" && plannedMeals.length === 0 && (
+            <View style={styles.card}>
+              <Text style={styles.sectionSubtitle}>
+                Carregando seu plano desta semana…
+              </Text>
+            </View>
+          )}
+
+          {weeklyPlanStatus === "loaded" && plannedMeals.length === 0 && (
+            <View style={styles.card}>
+              <Text style={styles.sectionSubtitle}>
+                Nenhum plano encontrado para esta semana. Gere seu plano no domingo à noite
+                ou peça ajuda ao agente IA.
+              </Text>
+            </View>
+          )}
+
           {plannedMeals.map((meal) => {
             const isExpanded = expandedMeal === meal.type;
             const isComplete = weeklyPlanStore.isMealComplete(selectedCalendarDate, meal.type);
             const totalKcal = meal.foods.reduce((sum, f) => sum + f.kcal, 0);
+            const checkedKcal = meal.foods.reduce((sum, f) => sum + (f.checked ? f.kcal : 0), 0);
+            const progressPct = totalKcal > 0 ? Math.min(100, (checkedKcal / totalKcal) * 100) : 0;
+            const timeStr = meal.time || (MEAL_TIMES[meal.type as MealType] ?? "—");
+            const kcalStr =
+              totalKcal === 0
+                ? "0 kcal"
+                : Math.round(checkedKcal) === Math.round(totalKcal)
+                  ? `${Math.round(checkedKcal)} kcal`
+                  : `${Math.round(checkedKcal)}/${Math.round(totalKcal)} kcal`;
 
             return (
-              <View key={meal.type} style={styles.mealCard}>
+              <View
+                key={meal.type}
+                style={[styles.mealCard, isComplete && styles.mealCardDone]}
+              >
                 <Pressable
                   style={({ pressed }) => [
                     styles.mealCardHeader,
+                    isExpanded && styles.mealCardExpanded,
                     pressed && styles.pressed,
                   ]}
                   onPress={() =>
@@ -531,24 +802,22 @@ export default function HomeScreen() {
                   }
                 >
                   <View style={styles.mealHeaderLeft}>
-                    <View style={styles.mealImageCircle}>
-                      <Text style={styles.mealEmoji}>
-                        {meal.type === "cafe" ? "☕" : meal.type === "almoco" ? "🍽️" : meal.type === "lanche" ? "🥤" : "🌙"}
-                      </Text>
-                      {isComplete && (
-                        <View style={styles.mealCheckBadge}>
-                          <Ionicons name="checkmark" size={14} color={Colors.surface} />
-                        </View>
-                      )}
-                    </View>
+                    <Text style={styles.mealEmoji}>{MEAL_EMOJI[meal.type as MealType] ?? "🍴"}</Text>
                     <View style={styles.mealInfo}>
-                      <Text style={styles.mealTitle}>{MEAL_LABELS[meal.type]}</Text>
-                      <Text style={styles.mealTimeSub}>
-                        {meal.time} • {meal.kcalRange}
+                      <View style={styles.mealTitleRow}>
+                        <Text style={styles.mealTitle} numberOfLines={1}>
+                          {MEAL_LABELS[meal.type as MealType] ?? "Refeição"}
+                        </Text>
+                        {isComplete && (
+                          <Ionicons name="checkmark-circle" size={20} color={Colors.primary} style={styles.mealDoneIcon} />
+                        )}
+                      </View>
+                      <Text style={styles.mealTimeSub} numberOfLines={1}>
+                        {timeStr} · {kcalStr}
                       </Text>
+                      <ProgressBar progress={progressPct / 100} height="thin" />
                     </View>
                   </View>
-
                   <Ionicons
                     name={isExpanded ? "chevron-up" : "chevron-down"}
                     size={20}
@@ -561,17 +830,15 @@ export default function HomeScreen() {
                     {meal.foods.map((food) => (
                       <View key={food.id} style={styles.plannedFoodItem}>
                         <Pressable
-                          style={[
-                            styles.foodCheckbox,
-                            food.checked && styles.foodCheckboxChecked,
-                          ]}
-                          onPress={() => weeklyPlanStore.toggleFoodCheck(selectedCalendarDate, meal.type, food.id)}
+                          style={[styles.foodCheckbox, food.checked && styles.foodCheckboxChecked]}
+                          onPress={() =>
+                            weeklyPlanStore.toggleFoodCheck(selectedCalendarDate, meal.type, food.id)
+                          }
                         >
                           {food.checked && (
-                            <Ionicons name="checkmark" size={16} color={Colors.surface} />
+                            <Ionicons name="checkmark" size={16} color={Colors.textInverse} />
                           )}
                         </Pressable>
-
                         <View style={styles.plannedFoodContent}>
                           <View style={styles.plannedFoodTop}>
                             <Text
@@ -580,25 +847,18 @@ export default function HomeScreen() {
                                 food.checked && styles.plannedFoodNameChecked,
                               ]}
                             >
-                              {food.name}
+                              {food.name} - {food.quantity_g}g
                             </Text>
                             <Text style={styles.plannedFoodKcal}>{food.kcal} kcal</Text>
                           </View>
-
-                          <View style={styles.plannedFoodMacros}>
-                            <Text style={styles.plannedMacroText}>
-                              <Text style={styles.plannedMacroLabel}>P: </Text>
-                              <Text style={styles.plannedMacroProtein}>{food.protein_g}g</Text>
-                            </Text>
-                            <Text style={styles.plannedMacroText}>
-                              <Text style={styles.plannedMacroLabel}>C: </Text>
-                              <Text style={styles.plannedMacroCarbo}>{food.carbo_g}g</Text>
-                            </Text>
-                            <Text style={styles.plannedMacroText}>
-                              <Text style={styles.plannedMacroLabel}>G: </Text>
+                          {!food.checked && (
+                            <Text style={styles.plannedFoodPcg}>
+                              P{" "}
+                              <Text style={styles.plannedMacroProtein}>{food.protein_g}g</Text> C{" "}
+                              <Text style={styles.plannedMacroCarbo}>{food.carbo_g}g</Text> G{" "}
                               <Text style={styles.plannedMacroFat}>{food.fat_g}g</Text>
                             </Text>
-                          </View>
+                          )}
                         </View>
                       </View>
                     ))}
@@ -617,6 +877,9 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   loadingWrap: {
     flex: 1,
@@ -650,7 +913,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 40,
     height: 40,
-    borderRadius: Radius.pill,
+    borderRadius: 20,
     backgroundColor: Colors.greenDark,
     alignItems: "center",
     justifyContent: "center",
@@ -686,82 +949,113 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.background,
   },
-  streakPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    backgroundColor: "#FFF8E8",
-    borderRadius: Radius.pill,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    alignSelf: "flex-start",
-    marginBottom: Spacing.lg,
-  },
-  streakText: {
-    ...Typography.caption,
-    fontWeight: "700",
-    color: Colors.greenDark,
-  },
   card: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  kcalRow: {
+  consumptionTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
-  kcalValue: {
-    fontFamily: Typography.h2.fontFamily,
-    fontSize: 22,
+  consumptionTitleLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  consumptionTitleIcon: {
+    marginRight: 2,
+  },
+  consumptionTitle: {
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: "600",
     color: Colors.text,
   },
-  kcalUnit: {
-    ...Typography.bodySmall,
+  streakBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: "#1A3D1A",
+  },
+  streakBadgeText: {
+    ...Typography.caption,
+    fontWeight: "700",
+    color: Colors.text,
+  },
+  kcalBig: {
+    ...Typography.h1,
+    fontSize: 36,
+    fontWeight: "700",
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  kcalBigUnit: {
+    fontSize: 18,
+    fontWeight: "400",
     color: Colors.textSecondary,
   },
-  kcalGoalText: {
+  kcalMeta: {
     ...Typography.caption,
     color: Colors.textSecondary,
-    marginTop: 2,
+    marginBottom: Spacing.xs,
   },
-  kcalPct: {
-    fontFamily: Typography.h2.fontFamily,
-    fontSize: 16,
-    color: Colors.greenDark,
-  },
-  progressTrack: {
-    height: 12,
-    backgroundColor: Colors.border,
-    borderRadius: Radius.pill,
-    overflow: "hidden",
-    marginBottom: Spacing.lg,
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: Radius.pill,
-  },
-  macroRow: {
+  consumptionFooter: {
     flexDirection: "row",
-    gap: Spacing.sm,
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: Spacing.md,
     paddingTop: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
+  gastasRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  gastasText: {
+    ...Typography.caption,
+    color: Colors.primary,
+    fontWeight: "600",
+  },
+  gastasTextWhite: {
+    ...Typography.caption,
+    color: Colors.text,
+    fontWeight: "600",
+  },
+  disponivelText: {
+    ...Typography.caption,
+    color: Colors.primary,
+    fontWeight: "700",
+  },
+  macroRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  macroDivider: {
+    width: 1,
+    backgroundColor: "#404040",
+    marginHorizontal: Spacing.sm,
+  },
   macroItem: {
     flex: 1,
+    minWidth: 0,
   },
   macroLabel: {
     ...Typography.label,
-    color: Colors.textSecondary,
+    color: Colors.text,
     marginBottom: 4,
   },
   macroValue: {
@@ -776,14 +1070,23 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
   },
-  macroTrack: {
-    height: 4,
-    backgroundColor: Colors.border,
+  macroTrackWrapper: {
+    width: "100%",
+    height: 6,
     borderRadius: Radius.pill,
     overflow: "hidden",
+    position: "relative",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 2,
   },
   macroFill: {
-    height: "100%",
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
     borderRadius: Radius.pill,
   },
   miniCardRow: {
@@ -795,24 +1098,32 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: Radius.xl,
     padding: Spacing.lg,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minHeight: 120,
   },
   miniCardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
-  miniCardIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.sm,
+  miniCardTitleRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: Spacing.xs,
+  },
+  miniCardLabelCaps: {
+    ...Typography.label,
+    fontSize: 11,
+    color: Colors.text,
+  },
+  miniCardValue: {
+    ...Typography.h4,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.text,
+    marginBottom: Spacing.sm,
   },
   miniAddButton: {
     width: 24,
@@ -834,74 +1145,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  miniCardLabel: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    marginBottom: 2,
-  },
-  miniCardValue: {
-    fontFamily: Typography.h2.fontFamily,
-    fontSize: 18,
-    color: Colors.text,
-  },
-  miniCardUnit: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    fontFamily: Typography.body.fontFamily,
-  },
-  activityTopRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    marginTop: 2,
-  },
-  activityMetaText: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    fontWeight: "700",
-  },
-  activityProgressTrack: {
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: Radius.pill,
-    overflow: "hidden",
-    marginTop: Spacing.sm,
-  },
-  activityProgressFill: {
-    height: "100%",
-    borderRadius: Radius.pill,
-  },
-  waterTopRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    marginTop: 2,
-  },
-  waterMetaText: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    fontWeight: "700",
-  },
-  waterProgressTrack: {
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: Radius.pill,
-    overflow: "hidden",
-    marginTop: Spacing.sm,
-  },
-  waterProgressFill: {
-    height: "100%",
-    borderRadius: Radius.pill,
-  },
   calendarSection: {
     marginBottom: Spacing.lg,
   },
-  calendarMonthTitle: {
-    ...Typography.h4,
-    color: Colors.text,
-    marginBottom: Spacing.md,
+  calendarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  calendarArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
   },
   calendarWeekRow: {
+    flex: 1,
     flexDirection: "row",
     gap: Spacing.xs,
   },
@@ -910,61 +1171,48 @@ const styles = StyleSheet.create({
     minWidth: 0,
     borderRadius: Radius.md,
     borderWidth: 1.5,
-    borderColor: Colors.green,
+    borderColor: Colors.border,
     backgroundColor: Colors.surface,
     overflow: "hidden",
   },
   calendarDayCardSelected: {
-    borderColor: Colors.greenDark,
+    borderColor: Colors.primary,
+  },
+  calendarDayCardComplete: {
+    borderColor: Colors.success,
+    backgroundColor: Colors.fatBg,
+  },
+  calendarDayCardIncomplete: {
+    borderColor: Colors.error,
+    backgroundColor: Colors.errorBg,
   },
   calendarDayTop: {
-    backgroundColor: Colors.surface,
-    paddingVertical: 6,
-    paddingTop: 4,
+    paddingTop: 6,
+    paddingBottom: 4,
     alignItems: "center",
     justifyContent: "center",
   },
-  calendarDayTopSelected: {
-    backgroundColor: Colors.greenDark,
-  },
-  calendarDayIndicator: {
-    width: "100%",
-    height: 3,
-    borderRadius: 2,
-    marginBottom: 4,
-  },
-  calendarDayIndicatorGreen: {
-    backgroundColor: Colors.greenLight,
-  },
-  calendarDayIndicatorRed: {
-    backgroundColor: Colors.errorBg,
-  },
-  calendarDayAbbr: {
-    ...Typography.label,
-    fontSize: 10,
-    color: Colors.textMuted,
-  },
-  calendarDayAbbrSelected: {
-    color: Colors.surface,
-  },
   calendarDayBottom: {
-    backgroundColor: Colors.surface,
-    paddingVertical: 6,
+    paddingBottom: 6,
+    paddingTop: 2,
     alignItems: "center",
     justifyContent: "center",
   },
   calendarDayNum: {
     ...Typography.h4,
     fontSize: 16,
-    color: Colors.textMuted,
-  },
-  calendarDayNumSelected: {
     color: Colors.text,
+  },
+  calendarDayAbbr: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textSecondary,
   },
   sectionHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: Spacing.md,
   },
   sectionTitle: {
@@ -1016,13 +1264,20 @@ const styles = StyleSheet.create({
   mealCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.xl,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 4,
   },
   mealCardDone: {
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.green,
+    opacity: 0.9,
+  },
+  mealCardExpanded: {
+    borderColor: Colors.primary,
   },
   mealCardOpen: {
     borderColor: `${Colors.greenDark}20`,
@@ -1031,10 +1286,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    minHeight: 0,
   },
   mealHeaderLeft: {
     flex: 1,
-    paddingRight: Spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingRight: Spacing.sm,
+    minHeight: 0,
   },
   mealTitleRow: {
     flexDirection: "row",
@@ -1046,6 +1306,7 @@ const styles = StyleSheet.create({
   },
   mealTitle: {
     ...Typography.body,
+    fontSize: 14,
     fontWeight: "700",
     color: Colors.text,
   },
@@ -1090,41 +1351,54 @@ const styles = StyleSheet.create({
   mealChipText: {
     ...Typography.caption,
     fontWeight: "700",
-  },
-  mealImageCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.greenLight,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
+    color: Colors.text,
   },
   mealEmoji: {
-    fontSize: 28,
+    fontSize: 24,
+    marginRight: Spacing.sm,
+  },
+  mealImageWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.md,
+    overflow: "hidden",
+    backgroundColor: Colors.surface,
+    position: "relative",
+  },
+  mealImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   mealCheckBadge: {
     position: "absolute",
-    bottom: -4,
-    right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.greenDark,
+    bottom: -6,
+    right: -6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.primary,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
-    borderColor: Colors.surface,
+    borderColor: Colors.background,
   },
   mealInfo: {
     flex: 1,
     justifyContent: "center",
-    gap: 4,
+    gap: 2,
+    minWidth: 0,
+  },
+  mealProgressLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    fontSize: 11,
   },
   mealTimeSub: {
     ...Typography.caption,
     color: Colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
   },
   mealItems: {
     marginTop: Spacing.md,
@@ -1150,8 +1424,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   foodCheckboxChecked: {
-    backgroundColor: Colors.greenDark,
-    borderColor: Colors.greenDark,
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   plannedFoodContent: {
     flex: 1,
@@ -1177,6 +1451,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     fontWeight: "400",
+  },
+  plannedFoodPcg: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
   plannedFoodMacros: {
     flexDirection: "row",
@@ -1242,6 +1522,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: Typography.body.fontFamily,
     fontWeight: "700",
+    color: Colors.textSecondary,
   },
   mealItemQty: {
     ...Typography.caption,
@@ -1261,5 +1542,17 @@ const styles = StyleSheet.create({
     ...Typography.label,
     color: Colors.surface,
     textTransform: "uppercase",
+  },
+  mealProgressTrack: {
+    height: 6,
+    backgroundColor: Colors.border,
+    borderRadius: Radius.pill,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  mealProgressFill: {
+    height: "100%",
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.pill,
   },
 });

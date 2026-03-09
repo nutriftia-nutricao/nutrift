@@ -14,6 +14,8 @@ interface GradientButtonProps {
   style?: ViewStyle;
   disabled?: boolean;
   showArrow?: boolean;
+  /** Cores do gradiente [início, fim]. Ex: ["#CAFF66", "#CAFF66"] para sólido verde limão. */
+  colors?: string[];
 }
 
 export function GradientButton({
@@ -22,6 +24,7 @@ export function GradientButton({
   style,
   disabled = false,
   showArrow = false,
+  colors = GradientColors.primary,
 }: GradientButtonProps) {
   return (
     <Pressable
@@ -34,7 +37,7 @@ export function GradientButton({
       ]}
     >
       <LinearGradient
-        colors={GradientColors.primary}
+        colors={colors}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={[styles.gradient, style]}
@@ -45,7 +48,7 @@ export function GradientButton({
             <Ionicons
               name="arrow-forward"
               size={20}
-              color={Colors.surface}
+              color="#111111"
               style={styles.arrow}
             />
           )}
@@ -58,7 +61,7 @@ export function GradientButton({
 const styles = StyleSheet.create({
   wrapper: {
     borderRadius: Radius.pill,
-    shadowColor: Colors.greenDark,
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
@@ -87,7 +90,7 @@ const styles = StyleSheet.create({
   },
   text: {
     ...Typography.h4,
-    color: Colors.surface,
+    color: "#111111", // Texto preto sobre primária (Regra crítica)
     fontWeight: "600",
   },
 });

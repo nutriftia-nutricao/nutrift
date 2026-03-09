@@ -2,23 +2,40 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { addDays, format, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { IconCircle } from "../components/ui";
 import { Colors } from "../constants/colors";
 import { Radius } from "../constants/radius";
 import { Spacing } from "../constants/spacing";
 import { Typography } from "../constants/typography";
 import type { MealType } from "../types/nutrition";
 import { MEAL_TYPE_LABELS } from "../types/nutrition";
+import { useWeeklyPlanStore } from "../stores/useWeeklyPlanStore";
+import { useOnboardingStore } from "../stores/useOnboardingStore";
+import { getSimilarFoodSuggestions, type SubstitutePreferences } from "../services/gemini";
+
+// Mesmo conjunto de imagens da tela Hoje (assets locais). Fallback para tipos futuros.
+const MEAL_IMAGES: Record<MealType, any> = {
+  cafe: require("../assets/images/meals/meal-cafe.png"),
+  lanche_manha: require("../assets/images/meals/meal-lanche-manha.png"),
+  almoco: require("../assets/images/meals/meal-almoco.png"),
+  lanche: require("../assets/images/meals/meal-lanche.png"),
+  jantar: require("../assets/images/meals/meal-jantar.png"),
+  pre_treino: require("../assets/images/meals/meal-pre-treino.png"),
+  pos_treino: require("../assets/images/meals/meal-pos-treino.png"),
+  extra: require("../assets/images/meals/meal-extra.png"),
+};
 
 interface FoodItem {
   id: string;
@@ -104,11 +121,28 @@ function getMockMealPlans(): MealPlan[] {
   ];
 }
 
+function replacingKey(mealType: MealType, foodId: string) {
+  return `${mealType}|${foodId}`;
+}
+
 export default function PlanoSemanalScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedMeal, setExpandedMeal] = useState<MealType | null>(null);
   const [meals, setMeals] = useState<MealPlan[]>(getMockMealPlans());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [replacingFood, setReplacingFood] = useState<string | null>(null);
+  const weeklyPlanStore = useWeeklyPlanStore();
+  const { diet_type, restrictions, liked_foods } = useOnboardingStore();
+  const dateISO = selectedDate.toISOString().slice(0, 10);
+
+  const substitutePreferences: SubstitutePreferences = useMemo(
+    () => ({
+      diet_type,
+      restrictions: restrictions ?? [],
+      liked_foods: liked_foods ?? [],
+    }),
+    [diet_type, restrictions, liked_foods]
+  );
 
   const weekStart = useMemo(
     () => startOfWeek(selectedDate, { weekStartsOn: 1 }),
@@ -133,6 +167,10 @@ export default function PlanoSemanalScreen() {
   };
 
   const toggleFoodCheck = (mealType: MealType, foodId: string) => {
+    const dateISO = selectedDate.toISOString().slice(0, 10);
+    // Atualiza o store global (usado na tela Hoje)
+    weeklyPlanStore.toggleFoodCheck(dateISO, mealType, foodId);
+    // Mantém estado local em sincronia para este screen
     setMeals((prev) =>
       prev.map((meal) => {
         if (meal.type === mealType) {
@@ -151,6 +189,73 @@ export default function PlanoSemanalScreen() {
   const isMealComplete = (meal: MealPlan) => {
     return meal.foods.length > 0 && meal.foods.every((f) => f.checked);
   };
+
+  const handleReplaceWithAi = useCallback(
+    async (meal: MealPlan, food: FoodItem) => {
+      const key = replacingKey(meal.type, food.id);
+      setReplacingFood(key);
+      const TIMEOUT_MS = 15000;
+      try {
+        const suggestions = await Promise.race([
+          getSimilarFoodSuggestions(
+            {
+              name: food.name,
+              quantity_g: food.quantity_g,
+              kcal: food.kcal,
+              protein_g: food.protein_g,
+              carbo_g: food.carbo_g,
+              fat_g: food.fat_g,
+            },
+            meal.type,
+            substitutePreferences
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), TIMEOUT_MS)
+          ),
+        ]);
+        const first = suggestions[0];
+        if (!first) {
+          setReplacingFood(null);
+          return;
+        }
+        weeklyPlanStore.replaceFood(dateISO, meal.type, food.id, {
+          id: food.id,
+          name: first.name,
+          quantity_g: first.quantity_g,
+          kcal: first.kcal,
+          protein_g: first.protein_g,
+          carbo_g: first.carbo_g,
+          fat_g: first.fat_g,
+        });
+        setMeals((prev) =>
+          prev.map((m) => {
+            if (m.type !== meal.type) return m;
+            return {
+              ...m,
+              foods: m.foods.map((f) =>
+                f.id === food.id
+                  ? {
+                      ...f,
+                      name: first.name,
+                      quantity_g: first.quantity_g,
+                      kcal: first.kcal,
+                      protein_g: first.protein_g,
+                      carbo_g: first.carbo_g,
+                      fat_g: first.fat_g,
+                    }
+                  : f
+              ),
+            };
+          })
+        );
+      } catch {
+        // timeout ou erro de rede: fallback da API já retorna mock; aqui só garante fim do loading
+      } finally {
+        setReplacingFood(null);
+      }
+    },
+    [dateISO, weeklyPlanStore, substitutePreferences]
+  );
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
@@ -188,7 +293,13 @@ export default function PlanoSemanalScreen() {
             styles.backButton,
             pressed && styles.pressed,
           ]}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/");
+            }
+          }}
         >
           <Ionicons name="arrow-back" size={20} color={Colors.text} />
           <Text style={styles.backButtonText}>Voltar</Text>
@@ -246,8 +357,11 @@ export default function PlanoSemanalScreen() {
                 onPress={() => toggleMeal(meal.type)}
               >
                 <View style={styles.mealLeft}>
-                  <View style={styles.mealImageCircle}>
-                    <Text style={styles.mealEmoji}>{meal.emoji}</Text>
+                  <View style={styles.mealImageWrapper}>
+                    <Image
+                      source={MEAL_IMAGES[meal.type] ?? MEAL_IMAGES.extra}
+                      style={styles.mealImage}
+                    />
                   </View>
                   <View style={styles.mealInfo}>
                     <Text style={styles.mealName}>{meal.label}</Text>
@@ -297,31 +411,21 @@ export default function PlanoSemanalScreen() {
                           </View>
                         </View>
 
-                        {/* Botão de substituição do alimento */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.replaceFoodButton,
-                    pressed && styles.pressed,
-                  ]}
-                  onPress={() => {
-                    router.push({
-                      pathname: "/substituir-alimento",
-                      params: {
-                        foodId: food.id,
-                        name: food.name,
-                        quantity_g: food.quantity_g,
-                        kcal: food.kcal,
-                        protein_g: food.protein_g,
-                        carbo_g: food.carbo_g,
-                        fat_g: food.fat_g,
-                        mealType: meal.type,
-                        date: selectedDate,
-                      },
-                    });
-                  }}
-                >
-                  <Ionicons name="swap-horizontal" size={20} color={Colors.greenDark} />
-                </Pressable>
+                        {/* Troca por IA em background (sem abrir tela) */}
+                        {replacingFood === replacingKey(meal.type, food.id) ? (
+                          <View style={styles.replaceLoading}>
+                            <ActivityIndicator size="small" color={Colors.primaryDark} />
+                          </View>
+                        ) : (
+                          <IconCircle
+                            icon="sync"
+                            size={36}
+                            iconSize={20}
+                            onPress={() => handleReplaceWithAi(meal, food)}
+                            accessibilityLabel={`Substituir ${food.name} por sugestão da IA`}
+                            accessibilityHint="Troca por um alimento similar com macros próximas"
+                          />
+                        )}
                       </View>
                     </View>
                   ))}
@@ -489,16 +593,19 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     flex: 1,
   },
-  mealImageCircle: {
+  mealImageWrapper: {
     width: 56,
     height: 56,
     borderRadius: Radius.md,
     backgroundColor: Colors.greenLight,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  mealEmoji: {
-    fontSize: 28,
+  mealImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   mealInfo: {
     flex: 1,
@@ -537,14 +644,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
   },
-  replaceFoodButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.greenLight,
+  replaceLoading: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
   },
   foodItemTop: {
     flexDirection: "row",

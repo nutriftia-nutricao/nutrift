@@ -1,139 +1,193 @@
-import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect } from "react";
+import { StyleSheet, Text, View, ScrollView } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { GradientButton } from "../../../components/ui/GradientButton";
+import { GradientButton } from "../../../components/ui";
+import { BodyMetricPicker } from "../../../components/onboarding/BodyMetricPicker";
 import { OnboardingHeader } from "../../../components/onboarding/OnboardingHeader";
-import { ProgressBar } from "../../../components/onboarding/ProgressBar";
 import { Colors } from "../../../constants/colors";
 import { Radius } from "../../../constants/radius";
 import { Spacing } from "../../../constants/spacing";
 import { Typography } from "../../../constants/typography";
 import { useOnboardingStore } from "../../../stores/useOnboardingStore";
-import type { WeeklyPace } from "../../../types/onboarding";
-
-const RITMO_OPTIONS: { value: WeeklyPace; label: string; subtitle: string; emoji: string }[] = [
-  { value: 0.25, label: "0,25 kg/semana", subtitle: "Ritmo leve e constante", emoji: "🐢" },
-  { value: 0.5, label: "0,5 kg/semana", subtitle: "Equilíbrio perfeito para você", emoji: "🚶" },
-  { value: 0.75, label: "0,75 kg/semana", subtitle: "Ritmo acelerado", emoji: "🏃" },
-  { value: 1.0, label: "1,0 kg/semana", subtitle: "Ritmo intenso (desafiador)", emoji: "⚡" },
-];
-
-interface RitmoCardProps {
-  label: string;
-  subtitle: string;
-  emoji: string;
-  selected: boolean;
-  badge?: string;
-  onPress: () => void;
-}
-
-function RitmoCard({ label, subtitle, emoji, selected, badge, onPress }: RitmoCardProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.ritmoCard,
-        selected && styles.ritmoCardSelected,
-        pressed && styles.pressed,
-      ]}
-    >
-      <View style={styles.ritmoCardLeft}>
-        <View style={styles.ritmoEmojiBox}>
-          <Text style={styles.ritmoEmoji}>{emoji}</Text>
-        </View>
-        <View style={styles.ritmoTextBlock}>
-          <View style={styles.ritmoTitleRow}>
-            <Text style={styles.ritmoTitle}>{label}</Text>
-            {badge && (
-              <View style={styles.ritmoBadge}>
-                <Text style={styles.ritmoBadgeText}>{badge}</Text>
-              </View>
-            )}
-          </View>
-          <Text
-            style={[
-              styles.ritmoSubtitle,
-              selected && styles.ritmoSubtitleSelected,
-            ]}
-          >
-            {subtitle}
-          </Text>
-        </View>
-      </View>
-      <View style={[styles.ritmoRadio, selected && styles.ritmoRadioSelected]}>
-        {selected && <Ionicons name="checkmark" size={16} color={Colors.surface} />}
-      </View>
-    </Pressable>
-  );
-}
 
 export default function OnboardingStep4Screen() {
-  const { goal, weekly_pace, setWeeklyPace } = useOnboardingStore();
+  const {
+    goal,
+    weight_kg,
+    target_weight,
+    setTargetWeight,
+    body_fat_pct,
+    target_body_fat_pct,
+    setTargetBodyFatPct,
+    setBodyFatPct,
+  } = useOnboardingStore();
+
+  const isManter = goal === "manter" || goal === "so_acompanhar";
+
+  // --- Weight: range simétrico centrado no peso atual ---
+  const weightSpread = 15; // ± 15 kg ao redor do atual
+  const minWeight = Math.max(30, Number((weight_kg - weightSpread).toFixed(1)));
+  const maxWeight = Number((weight_kg + weightSpread).toFixed(1));
+
+  useEffect(() => {
+    if (target_weight < minWeight) setTargetWeight(minWeight);
+    if (target_weight > maxWeight) setTargetWeight(maxWeight);
+  }, [minWeight, maxWeight]);
+
+  // --- Body Fat: range simétrico centrado na gordura atual ---
+  // Fallback: se gordura atual não veio da tela 2, preenche com o mesmo default da tela 2 para exibir ATUAL corretamente
+  useEffect(() => {
+    if (body_fat_pct === null) setBodyFatPct(18);
+  }, []);
+
+  const showFatSlider = body_fat_pct !== null && body_fat_pct > 0;
+  const fatSpread = 10; // ± 10% ao redor do atual
+  const minFat = showFatSlider ? Math.max(3, Number((body_fat_pct! - fatSpread).toFixed(1))) : 3;
+  const maxFat = showFatSlider ? Math.min(60, Number((body_fat_pct! + fatSpread).toFixed(1))) : 60;
+
+  useEffect(() => {
+    if (showFatSlider) {
+      if (target_body_fat_pct === null) {
+        setTargetBodyFatPct(body_fat_pct!);
+      } else {
+        if (target_body_fat_pct < minFat) setTargetBodyFatPct(minFat);
+        if (target_body_fat_pct > maxFat) setTargetBodyFatPct(maxFat);
+      }
+    }
+  }, [showFatSlider, body_fat_pct, target_body_fat_pct, minFat, maxFat]);
 
   const handleContinue = () => {
     router.push("/(auth)/onboarding/step-5");
   };
 
-  const showRitmoOptions = goal === "perder_gordura";
-
   return (
-    <View style={styles.root}>
-      <ProgressBar progress={4 / 7} />
+    <GestureHandlerRootView style={styles.root}>
+      <OnboardingHeader step={4} totalSteps={9} subtitle="Metas" fallbackRoute="/(auth)/onboarding/step-3" />
 
-      <OnboardingHeader step={4} totalSteps={7} subtitle="Ritmo" />
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.titleBlock}>
+          <Text style={styles.title}>Defina suas metas</Text>
+          <Text style={styles.subtitle}>
+            {isManter
+              ? "Ajuste se desejar, ou mantenha os valores atuais."
+              : "Onde você quer chegar?"}
+          </Text>
+        </View>
 
-      <View style={styles.titleBlock}>
-        <Text style={styles.title}>Qual será o seu ritmo?</Text>
-        <Text style={styles.subtitle}>
-          {showRitmoOptions
-            ? "Escolha a velocidade da sua jornada de perda de peso de forma saudável."
-            : "Para seu objetivo, usaremos um ritmo equilibrado."}
-        </Text>
-      </View>
+        <View style={styles.metricCard}>
+          <BodyMetricPicker
+            label="PESO META"
+            value={target_weight}
+            min={minWeight}
+            max={maxWeight}
+            step={0.5}
+            unit="KG"
+            majorStep={10}
+            mediumStep={5}
+            formatValue={(v) => v.toFixed(1)}
+            onChange={setTargetWeight}
+          />
+        </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {showRitmoOptions ? (
-          <>
-            {RITMO_OPTIONS.map((opt) => (
-              <RitmoCard
-                key={opt.value}
-                label={opt.label}
-                subtitle={opt.subtitle}
-                emoji={opt.emoji}
-                selected={weekly_pace === opt.value}
-                onPress={() => setWeeklyPace(opt.value)}
-                badge={opt.value === 0.5 ? "⭐ Recomendado" : undefined}
-              />
-            ))}
-            <View style={styles.tipRow}>
-              <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
-              <Text style={styles.tipText}>
-                Perder peso de forma gradual é cientificamente mais eficaz para manter os
-                resultados a longo prazo.
+        <View style={styles.metricCard}>
+          <BodyMetricPicker
+            label="GORDURA META"
+            value={target_body_fat_pct ?? body_fat_pct ?? 20}
+            min={showFatSlider ? minFat : 5}
+            max={showFatSlider ? maxFat : 50}
+            step={0.5}
+            unit="%"
+            majorStep={5}
+            mediumStep={2.5}
+            formatValue={(v) => v.toFixed(1)}
+            onChange={(v) => setTargetBodyFatPct(v)}
+          />
+        </View>
+
+        <View style={styles.infoContainer}>
+          {/* Peso — mesma estrutura de 3 colunas */}
+          <View style={styles.infoColumns}>
+            <View style={styles.infoCol}>
+              <Text style={styles.infoColLabel}>ATUAL</Text>
+              <Text style={styles.infoColValue}>{weight_kg.toFixed(1)}</Text>
+              <Text style={styles.infoColUnit}>kg</Text>
+            </View>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoColCenter}>
+              <Text style={styles.infoDiffLabel}>DIFERENÇA</Text>
+              <Text style={[
+                styles.infoDiff,
+                Math.abs(target_weight - weight_kg) >= 0.1 && styles.infoDiffActive,
+              ]}>
+                {Math.abs(target_weight - weight_kg) < 0.1
+                  ? "Manter"
+                  : `${target_weight > weight_kg ? "+" : ""}${(target_weight - weight_kg).toFixed(1)} kg`}
               </Text>
             </View>
-          </>
-        ) : (
-          <View style={styles.infoCard}>
-            <Ionicons name="information-circle" size={24} color={Colors.textSecondary} />
-            <Text style={styles.infoText}>
-              Seu plano será calculado com base no seu objetivo de{" "}
-              {goal === "ganhar_massa" ? "ganho de massa" : "manutenção"}.
-            </Text>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoCol}>
+              <Text style={styles.infoColLabel}>META</Text>
+              <Text style={styles.infoColValueHighlight}>{target_weight.toFixed(1)}</Text>
+              <Text style={styles.infoColUnit}>kg</Text>
+            </View>
           </View>
-        )}
+
+          {/* Gordura — mesma estrutura (ATUAL / DIFERENÇA / META) */}
+          <View style={styles.infoSeparator} />
+          <View style={styles.infoColumns}>
+            <View style={styles.infoCol}>
+              <Text style={styles.infoColLabel}>ATUAL</Text>
+              <Text style={styles.infoColValue}>
+                {showFatSlider && body_fat_pct != null ? body_fat_pct.toFixed(1) : "—"}
+              </Text>
+              <Text style={styles.infoColUnit}>%</Text>
+            </View>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoColCenter}>
+              <Text style={styles.infoDiffLabel}>DIFERENÇA</Text>
+              <Text style={[
+                styles.infoDiff,
+                showFatSlider &&
+                  body_fat_pct != null &&
+                  target_body_fat_pct != null &&
+                  Math.abs(target_body_fat_pct - body_fat_pct) >= 0.1 &&
+                  styles.infoDiffActive,
+              ]}>
+                {showFatSlider && body_fat_pct != null && target_body_fat_pct != null
+                  ? Math.abs(target_body_fat_pct - body_fat_pct) < 0.1
+                    ? "Manter"
+                    : `${target_body_fat_pct > body_fat_pct ? "+" : ""}${(target_body_fat_pct - body_fat_pct).toFixed(1)} %`
+                  : "—"}
+              </Text>
+            </View>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoCol}>
+              <Text style={styles.infoColLabel}>META</Text>
+              <Text style={styles.infoColValueHighlight}>
+                {(target_body_fat_pct ?? body_fat_pct ?? 20).toFixed(1)}
+              </Text>
+              <Text style={styles.infoColUnit}>%</Text>
+            </View>
+          </View>
+        </View>
+        
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <View style={styles.footer}>
         <GradientButton title="Continuar" onPress={handleContinue} showArrow />
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -142,160 +196,99 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  titleBlock: {
+  content: {
+    flex: 1,
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.lg,
+  },
+  titleBlock: {
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.xl,
   },
   title: {
-    ...Typography.h2,
-    fontSize: 24,
-    fontWeight: "500",
+    ...Typography.h1,
+    fontSize: 28,
     color: Colors.text,
     marginBottom: Spacing.sm,
   },
   subtitle: {
-    ...Typography.bodySmall,
-    fontSize: 14,
+    ...Typography.body,
     color: Colors.textSecondary,
-    lineHeight: 20,
   },
-  scroll: {
-    flex: 1,
+  metricCard: {
+    marginTop: Spacing.xl,
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: 128,
-    gap: 12,
-  },
-  ritmoCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    height: 80,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: Radius.xl,
+  infoContainer: {
+    marginTop: Spacing.xxxl,
     backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  ritmoCardSelected: {
-    borderWidth: 2,
-    borderColor: Colors.greenDark,
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  pressed: {
-    opacity: 0.99,
-  },
-  ritmoCardLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: Spacing.lg,
-  },
-  ritmoEmojiBox: {
-    width: 48,
-    height: 48,
     borderRadius: Radius.xl,
-    backgroundColor: Colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ritmoEmoji: {
-    fontSize: 24,
-  },
-  ritmoTextBlock: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  ritmoTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    flexWrap: "wrap",
-  },
-  ritmoTitle: {
-    ...Typography.bodySmall,
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.text,
-  },
-  ritmoBadge: {
-    backgroundColor: Colors.greenDark,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-  },
-  ritmoBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: Colors.surface,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  ritmoSubtitle: {
-    ...Typography.bodySmall,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  ritmoRadio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: Spacing.md,
-  },
-  ritmoRadioSelected: {
-    backgroundColor: Colors.greenDark,
-    borderColor: Colors.greenDark,
-  },
-  ritmoSubtitleSelected: {
-    color: Colors.textSecondary,
-  },
-  tipRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginTop: Spacing.lg,
-    paddingHorizontal: Spacing.sm,
-  },
-  tipText: {
-    ...Typography.bodySmall,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    flex: 1,
-    lineHeight: 20,
-  },
-  infoCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    padding: Spacing.lg,
-    backgroundColor: Colors.greenLight,
-    borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: Colors.green,
+    borderColor: Colors.border,
+    overflow: "hidden",
   },
-  infoText: {
-    ...Typography.bodySmall,
-    color: Colors.text,
+  infoColumns: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
+  },
+  infoCol: {
     flex: 1,
+    alignItems: "center",
+    gap: 2,
+  },
+  infoColCenter: {
+    flex: 1.2,
+    alignItems: "center",
+    gap: 4,
+  },
+  infoColLabel: {
+    ...Typography.label,
+    fontSize: 10,
+    color: Colors.textSecondary,
+  },
+  infoColValue: {
+    ...Typography.h3,
+    fontSize: 22,
+    color: Colors.text,
+  },
+  infoColValueHighlight: {
+    ...Typography.h3,
+    fontSize: 22,
+    color: Colors.primary,
+  },
+  infoColUnit: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  infoDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: Colors.border,
+  },
+  infoDiffLabel: {
+    ...Typography.label,
+    fontSize: 10,
+    color: Colors.textSecondary,
+  },
+  infoDiff: {
+    ...Typography.body,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  infoDiffActive: {
+    color: Colors.primary,
+  },
+  infoSeparator: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginHorizontal: Spacing.lg,
   },
   footer: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxl,
     paddingTop: Spacing.lg,
     backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderSubtle,
   },
 });

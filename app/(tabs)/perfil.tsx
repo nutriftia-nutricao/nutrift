@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback } from "react";
 import {
   Alert,
+  ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +19,9 @@ import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
 import { useTheme } from "../../hooks/useTheme";
 import { signOut } from "../../services/auth";
+import { fetchUserProfile } from "../../services/user";
+import { supabase } from "../../services/supabase";
+import { useNutritionStore } from "../../stores/useNutritionStore";
 import { useThemeStore } from "../../stores/useThemeStore";
 import { useUserStore } from "../../stores/useUserStore";
 
@@ -30,6 +35,18 @@ const PLAN_LABELS: Record<string, string> = {
   free: "Free",
   pro: "Pro",
   ultra: "Ultra",
+};
+
+const DIET_LABELS: Record<string, string> = {
+  onivoro: "Equilibrada",
+  equilibrada: "Equilibrada",
+  low_carb: "Low Carb",
+  vegetariano: "Vegetariana",
+  vegetariana: "Vegetariana",
+  vegano: "Vegana",
+  vegana: "Vegana",
+  cetogenica: "Cetogênica",
+  mediterranea: "Mediterrânea",
 };
 
 interface MenuItemProps {
@@ -77,16 +94,51 @@ export default function PerfilScreen() {
   const toggle = useThemeStore((s) => s.toggle);
   const user = useUserStore((s) => s.user);
   const clearUser = useUserStore((s) => s.clearUser);
+  const setUser = useUserStore((s) => s.setUser);
+  const isUserLoading = useUserStore((s) => s.isLoading);
+  const setUserLoading = useUserStore((s) => s.setLoading);
+  const streakFromStore = useNutritionStore((s) => s.streak);
+
+  const dietLabel = DIET_LABELS[user?.diet_type ?? ""] ?? "Não definida";
+  // TODO: buscar streak real do banco se necessário
+  const streakDays = streakFromStore ?? 0;
+
+  useFocusEffect(
+    useCallback(() => {
+      async function refresh() {
+        if (!user) {
+          setUserLoading(true);
+        }
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session?.user?.id) return;
+          const profile = await fetchUserProfile(session.user.id);
+          if (profile) setUser(profile);
+        } finally {
+          if (!user) {
+            setUserLoading(false);
+          }
+        }
+      }
+
+      void refresh();
+    }, [setUser, setUserLoading, user])
+  );
 
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()
     : "??";
 
   const goalLabel = GOAL_LABELS[user?.goal ?? ""] ?? "—";
+  const goalSubtitle =
+    user?.daily_kcal != null
+      ? `${goalLabel} • ${user.daily_kcal.toLocaleString("pt-BR")} kcal/dia`
+      : goalLabel;
   const planLabel = PLAN_LABELS[user?.plan ?? "free"] ?? "Free";
   const planColor =
     user?.plan === "ultra" ? C.greenDark : user?.plan === "pro" ? C.carbo : C.textSecondary;
-  const streakDays = 5;
 
   const handleSignOut = () => {
     Alert.alert("Sair da conta", "Tem certeza que deseja sair?", [
@@ -95,13 +147,32 @@ export default function PerfilScreen() {
         text: "Sair",
         style: "destructive",
         onPress: async () => {
-          await signOut();
-          clearUser();
-          router.replace("/(auth)/login");
+          try {
+            await signOut();
+          } catch {
+            // Ignora erro de rede; segue com logout local
+          } finally {
+            clearUser();
+            if (Platform.OS === "web" && typeof window !== "undefined") {
+              window.location.href = "/";
+            } else {
+              router.replace("/(auth)/login");
+            }
+          }
         },
       },
     ]);
   };
+
+  if (!user && isUserLoading) {
+    return (
+      <SafeAreaView style={[styles.root, { backgroundColor: C.background }]} edges={["top"]}>
+        <View style={[styles.root, { justifyContent: "center", alignItems: "center" }]}>
+          <ActivityIndicator size="large" color={C.green} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: C.background }]} edges={["top"]}>
@@ -136,7 +207,7 @@ export default function PerfilScreen() {
         {/* Seção: Minha Conta */}
         <Text style={[styles.sectionLabel, { color: C.textMuted }]}>MINHA CONTA</Text>
         <View style={[styles.menuCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-          <MenuItem C={C} icon="trophy-outline" label="Meu objetivo" subtitle={goalLabel} onPress={() => router.push("/perfil/meu-objetivo")} />
+          <MenuItem C={C} icon="trophy-outline" label="Meu objetivo" subtitle={goalSubtitle} onPress={() => router.push("/perfil/meu-objetivo")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
           <MenuItem C={C} icon="person-outline" label="Dados corporais" subtitle={`${user?.weight_kg ?? "—"}kg • ${user?.height_cm ?? "—"}cm`} onPress={() => router.push("/perfil/dados-corporais")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />

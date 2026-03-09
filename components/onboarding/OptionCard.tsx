@@ -56,7 +56,7 @@ export function OptionCard({
               <Ionicons
                 name={icon}
                 size={24}
-                color={iconColor ?? (selected ? Colors.greenDark : Colors.textSecondary)}
+                color={iconColor ?? (selected ? Colors.primaryDark : Colors.textSecondary)}
               />
             ) : null}
           </View>
@@ -99,11 +99,11 @@ const styles = StyleSheet.create({
     minHeight: 80,
   },
   cardSelected: {
-    backgroundColor: Colors.greenLight,
+    backgroundColor: Colors.surfaceElevated,
     borderWidth: 2,
-    borderColor: Colors.green,
+    borderColor: Colors.primary,
     borderLeftWidth: 4,
-    borderLeftColor: Colors.green,
+    borderLeftColor: Colors.primary,
   },
   pressed: {
     opacity: 0.95,
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconWrapperSelected: {
-    backgroundColor: Colors.greenLight,
+    backgroundColor: Colors.primaryLight,
   },
   textBlock: {
     flex: 1,
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   badge: {
-    backgroundColor: Colors.greenDark,
+    backgroundColor: Colors.primaryDark,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: Radius.pill,
@@ -170,8 +170,8 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.md,
   },
   radioSelected: {
-    backgroundColor: Colors.greenDark,
-    borderColor: Colors.greenDark,
+    backgroundColor: Colors.primaryDark,
+    borderColor: Colors.primaryDark,
   },
   emoji: {
     fontSize: 24,

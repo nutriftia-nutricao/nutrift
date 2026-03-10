@@ -7,6 +7,7 @@ import { Colors } from "../../constants/colors";
 export default function TabsLayout() {
   return (
     <Tabs
+      initialRouteName="index"
       screenOptions={{
         headerShown: false,
         tabBarStyle: {

@@ -98,7 +98,7 @@ export default function Index() {
     if (!onboardingCompleted) {
       return <Redirect href="/(auth)/onboarding/step-1" />;
     }
-    return <Redirect href="/(tabs)/" />;
+    return <Redirect href="/(tabs)/index" />;
   }
 
   return <Redirect href="/(auth)/login" />;

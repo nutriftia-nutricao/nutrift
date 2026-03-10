@@ -30,6 +30,7 @@ export interface User {
   diet_type?: UserDietType | null;
   restrictions?: UserRestriction[];
   plan: Plan;
+  is_pro?: boolean;
   trial_ends_at?: string | null;
   last_plan_generated_at?: string | null;
   tmb: number;

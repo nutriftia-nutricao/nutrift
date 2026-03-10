@@ -222,7 +222,7 @@ export default function OnboardingStep9Screen() {
       setLoading(false);
       // Garante que, em ambiente web ou mobile, o usuário sempre vá para a tela principal
       // após concluir o onboarding, mesmo que haja falha pontual ao persistir no servidor.
-      router.replace("/(tabs)/");
+      router.replace("/(tabs)/index");
     }
   };
 

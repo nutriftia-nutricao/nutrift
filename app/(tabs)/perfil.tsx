@@ -211,7 +211,7 @@ export default function PerfilScreen() {
           <View style={[styles.divider, { backgroundColor: C.border }]} />
           <MenuItem C={C} icon="person-outline" label="Dados corporais" subtitle={`${user?.weight_kg ?? "—"}kg • ${user?.height_cm ?? "—"}cm`} onPress={() => router.push("/perfil/dados-corporais")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
-          <MenuItem C={C} icon="restaurant-outline" label="Dieta e preferências" subtitle="Equilibrada" onPress={() => router.push("/perfil/dieta-preferencias")} />
+          <MenuItem C={C} icon="restaurant-outline" label="Dieta e preferências" subtitle={dietLabel} onPress={() => router.push("/perfil/dieta-preferencias")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
           <MenuItem C={C} icon="calendar-outline" label="Ver plano da semana" badge="Disponível" badgeColor={C.greenDark} onPress={() => router.push("/plano-semanal")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />

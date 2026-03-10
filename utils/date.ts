@@ -22,10 +22,13 @@ export function getAgeFromBirthDate(birthDate: Date): number {
   return age;
 }
 
-/** Retorna a data de hoje no fuso local em ISO YYYY-MM-DD. */
+/** Retorna a data de hoje no fuso local em ISO YYYY-MM-DD (sem depender de UTC). */
 export function getTodayISO(): string {
   const d = new Date();
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /** Retorna data de nascimento aproximada (ISO YYYY-MM-DD) a partir da idade. */

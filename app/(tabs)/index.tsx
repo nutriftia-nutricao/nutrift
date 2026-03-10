@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -36,22 +37,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { getTodayISO } from "../../utils/date";
 import { ProgressBar } from "../../components/ui";
 import type { WeeklyPlanStatus } from "../../stores/useWeeklyPlanStore";
-
-/** Valores fictícios para visualizar a barra e cards quando não há dados reais (~67% da meta) */
-const DEMO_VALUES = {
-  kcal: 1420,
-  kcalGoal: 2100,
-  protein_g: 98,
-  protein_goal: 160,
-  carbo_g: 145,
-  carbo_goal: 240,
-  fat_g: 44,
-  fat_goal: 65,
-  activityMin: 45,
-  activityGoal: 60,
-  waterL: 2.1,
-  waterGoal: 3.4,
-};
+import { useIsPro } from "../../hooks/useUserPlan";
 
 const MEAL_TIMES: Record<MealType, string> = {
   cafe: "07:30",
@@ -62,6 +48,16 @@ const MEAL_TIMES: Record<MealType, string> = {
   pre_treino: "06:30",
   pos_treino: "21:30",
   extra: "—",
+};
+
+const WEEKDAY_ABBR: Record<number, string> = {
+  0: "Dom",
+  1: "Seg",
+  2: "Ter",
+  3: "Qua",
+  4: "Qui",
+  5: "Sex",
+  6: "Sáb",
 };
 
 function getGreeting(): string {
@@ -255,6 +251,7 @@ const MEAL_EMOJI: Record<MealType, string> = {
 };
 
 const STREAK_CELEBRATION_THRESHOLD = 5;
+const CALENDAR_SWIPE_THRESHOLD = 40;
 
 export default function HomeScreen() {
   const { C } = useTheme();
@@ -325,6 +322,8 @@ export default function HomeScreen() {
   const userName = user?.name?.trim() || "Usuário";
   const firstName = userName.split(" ")[0] || userName;
   const kcalGoal = user?.daily_kcal ?? 2000;
+  const displayKcalGoal = kcalGoal;
+  const isPro = useIsPro();
 
   /** Totais do dia selecionado: refeições do plano cujos alimentos foram marcados como consumidos. */
   const plannedCheckedTotals = useMemo(() => {
@@ -345,32 +344,24 @@ export default function HomeScreen() {
     return { kcal, protein_g, carbo_g, fat_g };
   }, [plannedMeals]);
 
-  /** Consumo diário = só as refeições de hoje (itens marcados). Usa valores fictícios quando zerado para visualização. Meta sempre vem do perfil do usuário. */
-  const useDemoConsumption = plannedCheckedTotals.kcal === 0;
-  const kcalConsumed = useDemoConsumption ? DEMO_VALUES.kcal : plannedCheckedTotals.kcal;
-  const displayKcalGoal = kcalGoal;
+  // Consumo
+  const kcalConsumed = plannedCheckedTotals.kcal;
   const kcalPct =
     displayKcalGoal > 0
       ? Math.min(100, Math.round((kcalConsumed / displayKcalGoal) * 100))
       : 0;
 
+  // Macros — sempre usar valores reais do store ou zero
   const macroGoals = useMemo(() => {
-    const proteinGoal = user?.protein_g ?? 120;
-    const carboGoal = user?.carbo_g ?? 250;
-    const fatGoal = user?.fat_g ?? 65;
-    if (useDemoConsumption) {
-      return [
-        { label: "Proteína", value: DEMO_VALUES.protein_g, goal: proteinGoal, color: Colors.protein },
-        { label: "Carbos", value: DEMO_VALUES.carbo_g, goal: carboGoal, color: Colors.carbo },
-        { label: "Gordura", value: DEMO_VALUES.fat_g, goal: fatGoal, color: Colors.fat },
-      ];
-    }
+    const proteinGoal = user?.protein_g ?? 0;
+    const carboGoal = user?.carbo_g ?? 0;
+    const fatGoal = user?.fat_g ?? 0;
     return [
       { label: "Proteína", value: Math.round(plannedCheckedTotals.protein_g), goal: proteinGoal, color: Colors.protein },
       { label: "Carbos", value: Math.round(plannedCheckedTotals.carbo_g), goal: carboGoal, color: Colors.carbo },
       { label: "Gordura", value: Math.round(plannedCheckedTotals.fat_g), goal: fatGoal, color: Colors.fat },
     ];
-  }, [plannedCheckedTotals, user, useDemoConsumption]);
+  }, [plannedCheckedTotals, user]);
 
   const mealsPerDay = user?.meals_per_day ?? 4;
   const mealTypesToShow = getMealTypesForDisplay(mealsPerDay);
@@ -400,14 +391,29 @@ export default function HomeScreen() {
 
   const handleChangeWeek = useCallback(
     (direction: "prev" | "next") => {
-      const current = new Date(selectedCalendarDate + "T12:00:00");
-      const delta = direction === "prev" ? -7 : 7;
-      const nextDate = addDays(current, delta);
-      const iso = format(nextDate, "yyyy-MM-dd");
+      const deltaWeeks = direction === "prev" ? -1 : 1;
+      const nextWeekStart = addDays(weekStart, deltaWeeks * 7);
+      const iso = format(nextWeekStart, "yyyy-MM-dd");
       setSelectedCalendarDate(iso);
     },
-    [selectedCalendarDate]
+    [weekStart]
   );
+
+  const calendarPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
+        Math.abs(gestureState.dx) > 10,
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx <= -CALENDAR_SWIPE_THRESHOLD) {
+          handleChangeWeek("next");
+        } else if (gestureState.dx >= CALENDAR_SWIPE_THRESHOLD) {
+          handleChangeWeek("prev");
+        }
+      },
+    })
+  ).current;
 
   const mealsForDisplay = useMemo(() => {
     const proteinGoalPerMeal = (user?.protein_g ?? 120) / Math.max(1, mealsPerDay);
@@ -456,18 +462,20 @@ export default function HomeScreen() {
   const todayForWater = getTodayISO();
   const waterTotalMl = useHydrationStore((s) => s.getTotalMlForDate(todayForWater));
   const waterGoal = useHydrationStore((s) => s.waterGoalL);
+  // Hidratação
   const waterLiters = waterTotalMl / 1000;
-  const useDemoWater = waterLiters === 0;
-  const displayWaterL = useDemoWater ? DEMO_VALUES.waterL : waterLiters;
-  const displayWaterGoal = useDemoWater ? DEMO_VALUES.waterGoal : waterGoal;
+  const displayWaterL = waterLiters;
+  const displayWaterGoal = waterGoal;
   const waterPct =
-    displayWaterGoal > 0 ? Math.min(100, Math.round((displayWaterL / displayWaterGoal) * 100)) : 0;
+    displayWaterGoal > 0
+      ? Math.min(100, Math.round((displayWaterL / displayWaterGoal) * 100))
+      : 0;
 
+  // Atividade
   const activityMinutes = useActivityStore((s) => s.getTotalMinutesForDate(todayForWater));
   const activityGoalMinutes = useActivityStore((s) => s.goalMinutesPerDay);
-  const useDemoActivity = activityMinutes === 0;
-  const displayActivityMin = useDemoActivity ? DEMO_VALUES.activityMin : activityMinutes;
-  const displayActivityGoal = useDemoActivity ? DEMO_VALUES.activityGoal : activityGoalMinutes;
+  const displayActivityMin = activityMinutes;
+  const displayActivityGoal = activityGoalMinutes;
   const activityPct =
     displayActivityGoal > 0
       ? Math.min(100, Math.round((displayActivityMin / displayActivityGoal) * 100))
@@ -600,7 +608,7 @@ export default function HomeScreen() {
           <View style={styles.consumptionFooter}>
             <View style={styles.gastasRow}>
               <Ionicons name="flame" size={14} color={Colors.carbo} />
-              <Text style={styles.gastasTextWhite}>Gastas: 320 kcal</Text>
+              <Text style={styles.gastasTextWhite}>Gastas: 0 kcal</Text>
             </View>
             <Text style={styles.disponivelText}>
               Disponível: +{formatIntBR(Math.max(0, displayKcalGoal - kcalConsumed))} kcal
@@ -663,21 +671,10 @@ export default function HomeScreen() {
 
         {/* Calendário semanal — estilo Stitch acima das refeições */}
         <View style={styles.calendarSection}>
-          <View style={styles.calendarRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.calendarArrow,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => handleChangeWeek("prev")}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={18}
-                color={Colors.textSecondary}
-              />
-            </Pressable>
-
+          <View
+            style={styles.calendarRow}
+            {...calendarPanResponder.panHandlers}
+          >
             <View style={styles.calendarWeekRow}>
               {weekDays.map((d) => {
                 const iso = format(d, "yyyy-MM-dd");
@@ -705,9 +702,8 @@ export default function HomeScreen() {
                       : "none";
 
                 const dayNum = format(d, "d");
-                const dayAbbr = format(d, "EEE", {
-                  locale: ptBR,
-                }).toUpperCase();
+                const dayIndex = d.getDay();
+                const dayAbbr = WEEKDAY_ABBR[dayIndex] ?? "";
 
                 return (
                   <Pressable
@@ -723,29 +719,15 @@ export default function HomeScreen() {
                     onPress={() => setSelectedCalendarDate(iso)}
                   >
                     <View style={styles.calendarDayTop}>
-                      <Text style={styles.calendarDayNum}>{dayNum}</Text>
+                      <Text style={styles.calendarDayAbbr}>{dayAbbr}</Text>
                     </View>
                     <View style={styles.calendarDayBottom}>
-                      <Text style={styles.calendarDayAbbr}>{dayAbbr}</Text>
+                      <Text style={styles.calendarDayNum}>{dayNum}</Text>
                     </View>
                   </Pressable>
                 );
               })}
             </View>
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.calendarArrow,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => handleChangeWeek("next")}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={Colors.textSecondary}
-              />
-            </Pressable>
           </View>
         </View>
 
@@ -766,8 +748,9 @@ export default function HomeScreen() {
           {weeklyPlanStatus === "loaded" && plannedMeals.length === 0 && (
             <View style={styles.card}>
               <Text style={styles.sectionSubtitle}>
-                Nenhum plano encontrado para esta semana. Gere seu plano no domingo à noite
-                ou peça ajuda ao agente IA.
+                {isPro
+                  ? "Nenhum plano gerado ainda. Vá em Perfil → Ver plano da semana para gerar."
+                  : "Faça upgrade para Pro e receba um plano alimentar personalizado pela IA."}
               </Text>
             </View>
           )}
@@ -1151,8 +1134,7 @@ const styles = StyleSheet.create({
   calendarRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.sm,
+    justifyContent: "center",
   },
   calendarArrow: {
     width: 32,

@@ -1,4 +1,4 @@
-import { useUserStore } from "@/stores/useUserStore";
+import { useUserStore } from "../stores/useUserStore";
 
 type UserWithPlanMeta = {
   plan?: "free" | "pro" | "trial" | string;
@@ -6,11 +6,14 @@ type UserWithPlanMeta = {
   last_plan_generated_at?: string | null;
 };
 
+/** Estado do store usado nos seletores (apenas user). */
+type UserStoreSlice = { user: UserWithPlanMeta | null };
+
 /**
  * Retorna true se o usuário tem acesso Pro ativo (plano pro ou trial válido).
  */
 export const useIsPro = (): boolean => {
-  const user = useUserStore((state) => state.user) as UserWithPlanMeta | null;
+  const user = useUserStore((state: UserStoreSlice) => state.user) as UserWithPlanMeta | null;
   if (!user) return false;
   if (user.plan === "pro") return true;
   if (user.plan === "trial" && user.trial_ends_at) {
@@ -24,7 +27,7 @@ export const useIsPro = (): boolean => {
  * Retorna 0 se pode regenerar agora.
  */
 export const usePlanDaysRemaining = (): number => {
-  const user = useUserStore((state) => state.user) as UserWithPlanMeta | null;
+  const user = useUserStore((state: UserStoreSlice) => state.user) as UserWithPlanMeta | null;
   if (!user?.last_plan_generated_at) return 0;
   const lastGen = new Date(user.last_plan_generated_at);
   const daysSince = Math.floor((Date.now() - lastGen.getTime()) / 86400000);

@@ -71,10 +71,11 @@ export default function OnboardingStep2Screen() {
               value={height_cm}
               min={140}
               max={220}
-              step={1}
+              step={0.1}
               unit="CM"
               majorStep={10}
               mediumStep={5}
+              displayStep={10}
               onChange={setHeight}
             />
 
@@ -84,7 +85,7 @@ export default function OnboardingStep2Screen() {
               min={weightMin}
               max={weightMax}
               step={0.1}
-              displayStep={1}
+              displayStep={10}
               unit="KG"
               majorStep={10}
               mediumStep={5}
@@ -107,8 +108,8 @@ export default function OnboardingStep2Screen() {
             <BodyMetricPicker
               label="GORDURA CORPORAL"
               value={body_fat_pct ?? 18}
-              min={5}
-              max={50}
+              min={0}
+              max={100}
               step={0.5}
               unit="%"
               majorStep={5}

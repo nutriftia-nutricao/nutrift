@@ -90,6 +90,7 @@ function RulerPicker({
   const [containerWidth, setContainerWidth] = React.useState(0);
   const isScrollingRef = React.useRef(false);
   const initialScrollSyncedRef = React.useRef(false);
+  const scrollXRef = React.useRef(0);
 
   const useContinuous = displayStep != null && displayStep > 0;
 
@@ -116,15 +117,6 @@ function RulerPicker({
     return Math.max(0, Math.min(values.length - 1, rawIndex));
   }, [value, min, max, safeStep, values.length]);
 
-  const initialScrollXContinuous = React.useMemo(() => {
-    if (!useContinuous || range <= 0) return 0;
-    return ((clamp(value, min, max) - min) / range) * CONTINUOUS_CONTENT_WIDTH;
-  }, [useContinuous, value, min, max, range]);
-
-  const [scrollX, setScrollX] = React.useState(
-    useContinuous ? initialScrollXContinuous : selectedIndex * ITEM_WIDTH
-  );
-
   const sidePadding = React.useMemo(
     () =>
       useContinuous && containerWidth > 0
@@ -134,29 +126,6 @@ function RulerPicker({
           : 0,
     [containerWidth, useContinuous]
   );
-
-  const centerPositionContinuous =
-    containerWidth > 0 ? scrollX + containerWidth / 2 - sidePadding : 0;
-  const centeredValueContinuous = clamp(
-    min + (centerPositionContinuous / CONTINUOUS_CONTENT_WIDTH) * range,
-    min,
-    max
-  );
-  const centeredValueRounded = roundToStep(centeredValueContinuous, step);
-  const isMajorAtCenterContinuous = isMultipleOf(centeredValueRounded, majorStep);
-
-  const centerIndexContinuous = containerWidth > 0 ? scrollX / ITEM_WIDTH : selectedIndex;
-  const centeredIndex = Math.round(centerIndexContinuous);
-  const clampedCenteredIndex = Math.max(0, Math.min(values.length - 1, centeredIndex));
-  const centeredValue = values[clampedCenteredIndex];
-  const isMajorAtCenter = isMultipleOf(centeredValue, majorStep);
-
-  const effectiveCenteredValue = useContinuous ? centeredValueRounded : centeredValue;
-  const effectiveIsMajor = useContinuous ? isMajorAtCenterContinuous : isMajorAtCenter;
-
-  React.useEffect(() => {
-    onCenterChange(effectiveCenteredValue, effectiveIsMajor);
-  }, [effectiveCenteredValue, effectiveIsMajor, onCenterChange]);
 
   const handleLayout = (event: LayoutChangeEvent) => {
     setContainerWidth(event.nativeEvent.layout.width);
@@ -173,13 +142,13 @@ function RulerPicker({
       const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
       if (!isScrollingRef.current && scrollRef.current) {
         scrollRef.current.scrollTo({ x: clampedX, animated: false });
-        setScrollX(clampedX);
+        scrollXRef.current = clampedX;
         initialScrollSyncedRef.current = true;
       }
     } else if (!useContinuous && !isScrollingRef.current && scrollRef.current && values.length > 0) {
       const targetX = selectedIndex * ITEM_WIDTH;
       scrollRef.current.scrollTo({ x: targetX, animated: false });
-      setScrollX(targetX);
+      scrollXRef.current = targetX;
       initialScrollSyncedRef.current = true;
     }
   }, [useContinuous, value, min, max, range, containerWidth, selectedIndex, values.length, maxScrollXContinuous]);
@@ -195,7 +164,7 @@ function RulerPicker({
         if (scrollRef.current) {
           isScrollingRef.current = true;
           scrollRef.current.scrollTo({ x: clampedX, animated: true });
-          setScrollX(clampedX);
+          scrollXRef.current = clampedX;
         }
         const normalized = Number(roundToStep(snapped, step).toFixed(step < 1 ? 1 : 0));
         if (normalized !== value) onChange(normalized);
@@ -206,7 +175,7 @@ function RulerPicker({
         if (scrollRef.current) {
           isScrollingRef.current = true;
           scrollRef.current.scrollTo({ x: index * ITEM_WIDTH, animated: true });
-          setScrollX(index * ITEM_WIDTH);
+          scrollXRef.current = index * ITEM_WIDTH;
         }
         const newValue = clamp(values[index], min, max);
         const normalized = Number(roundToStep(newValue, step).toFixed(step < 1 ? 1 : 0));
@@ -222,7 +191,22 @@ function RulerPicker({
     // Evita que o primeiro frame (scroll nativo em 0) sobrescreva o valor correto antes do scrollTo programático
     if (useContinuous && !initialScrollSyncedRef.current && offsetX < 10 && value > min) return;
     initialScrollSyncedRef.current = true;
-    setScrollX(offsetX);
+    scrollXRef.current = offsetX;
+
+    if (useContinuous && containerWidth > 0 && range > 0) {
+      const centerPos = offsetX + (containerWidth / 2 - sidePadding);
+      const rawValue = min + (centerPos / CONTINUOUS_CONTENT_WIDTH) * range;
+      const snapped = clamp(roundToStep(rawValue, step), min, max);
+      const isMajor = isMultipleOf(snapped, majorStep);
+      onCenterChange(snapped, isMajor);
+    } else if (!useContinuous) {
+      const centerIndexContinuous = containerWidth > 0 ? offsetX / ITEM_WIDTH : selectedIndex;
+      const centeredIndex = Math.round(centerIndexContinuous);
+      const clampedCenteredIndex = Math.max(0, Math.min(values.length - 1, centeredIndex));
+      const centeredValue = values[clampedCenteredIndex];
+      const isMajor = isMultipleOf(centeredValue, majorStep);
+      onCenterChange(centeredValue, isMajor);
+    }
   };
 
   const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -279,7 +263,6 @@ function RulerPicker({
             })}
           </View>
         </ScrollView>
-        <View pointerEvents="none" style={styles.centerLine} />
       </View>
     );
   }
@@ -528,15 +511,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 10,
     color: Colors.textSecondary,
-  },
-  centerLine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 2,
-    borderRadius: 1,
-    backgroundColor: Colors.primary,
-    alignSelf: "center",
   },
   continuousRuler: {
     position: "relative",

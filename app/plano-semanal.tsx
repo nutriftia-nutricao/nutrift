@@ -26,6 +26,8 @@ import { useUserStore } from "../stores/useUserStore";
 import { useOnboardingStore } from "../stores/useOnboardingStore";
 import { generateWeeklyPlan } from "../services/weeklyPlan";
 import { getSimilarFoodSuggestions, type SubstitutePreferences } from "../services/gemini";
+import { getSession, recoverSessionFromUrl } from "../services/auth";
+import { ensureUserProfile, fetchUserProfile } from "../services/user";
 import type { MealType } from "../types/nutrition";
 import { MEAL_TYPE_LABELS } from "../types/nutrition";
 import type { PlannedFood, PlannedMeal } from "../stores/useWeeklyPlanStore";
@@ -52,6 +54,7 @@ export default function PlanoSemanalScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [replacingFood, setReplacingFood] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
   const user = useUserStore((s) => s.user);
   const isPro = useIsPro();
@@ -79,6 +82,80 @@ export default function PlanoSemanalScreen() {
     const daysSince = Math.floor((Date.now() - lastGen.getTime()) / 86400000);
     return daysSince < 7 ? 7 - daysSince : 0;
   }, [user?.last_plan_generated_at]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function guardAccess() {
+      try {
+        await recoverSessionFromUrl();
+
+        const currentUser = useUserStore.getState().user;
+
+        if (!currentUser?.id) {
+          let {
+            data: { session },
+          } = await getSession();
+
+          if (cancelled) return;
+
+          if (!session?.user?.id) {
+            router.replace("/(auth)/login");
+            return;
+          }
+
+          let profile = await fetchUserProfile(session.user.id);
+
+          if (cancelled) return;
+
+          if (!profile) {
+            const email = session.user.email ?? "";
+            const name =
+              session.user.user_metadata?.full_name ??
+              session.user.user_metadata?.name ??
+              session.user.user_metadata?.user_name ??
+              "";
+            profile = await ensureUserProfile(session.user.id, email, name);
+          }
+
+          if (cancelled) return;
+
+          if (!profile) {
+            router.replace("/(auth)/login");
+            return;
+          }
+
+          useUserStore.getState().setUser(profile);
+
+          if (!profile.onboarding_completed) {
+            useOnboardingStore.getState().setData({ name: profile.name || "" });
+            router.replace("/(auth)/onboarding/step-1");
+            return;
+          }
+
+          setCheckingAccess(false);
+          return;
+        }
+
+        if (!currentUser.onboarding_completed) {
+          router.replace("/(auth)/onboarding/step-1");
+          return;
+        }
+
+        setCheckingAccess(false);
+      } catch {
+        if (!cancelled) {
+          router.replace("/(auth)/login");
+        }
+      }
+    }
+
+    guardAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.id) {
@@ -186,6 +263,17 @@ export default function PlanoSemanalScreen() {
     },
     [dateISO, weeklyPlanStore, substitutePreferences]
   );
+
+  if (checkingAccess) {
+    return (
+      <SafeAreaView style={styles.root} edges={["top"]}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Carregando...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>

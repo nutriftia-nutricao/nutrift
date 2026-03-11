@@ -132,7 +132,7 @@ export default function AgenteScreen() {
   const hasMessages = messages.length > 0;
 
   const handleBack = useCallback(() => {
-    router.replace("/(tabs)/index");
+    router.replace("/(tabs)/");
   }, [router]);
 
   useFocusEffect(

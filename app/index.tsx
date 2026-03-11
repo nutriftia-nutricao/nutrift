@@ -14,7 +14,6 @@ export default function Index() {
   const [resolvedProfile, setResolvedProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | false>(null);
 
   const setUser = useUserStore((s) => s.setUser);
-  const user = useUserStore((s) => s.user);
   const setOnboardingData = useOnboardingStore((s) => s.setData);
 
   useEffect(() => {
@@ -76,7 +75,7 @@ export default function Index() {
     return () => {
       cancelled = true;
     };
-  }, [setUser, setOnboardingData, user?.id]);
+  }, [setUser, setOnboardingData]);
 
   if (Platform.OS === "web") {
     return <Redirect href="/(auth)/login" />;
@@ -98,7 +97,7 @@ export default function Index() {
     if (!onboardingCompleted) {
       return <Redirect href="/(auth)/onboarding/step-1" />;
     }
-    return <Redirect href="/(tabs)/index" />;
+    return <Redirect href="/(tabs)/" />;
   }
 
   return <Redirect href="/(auth)/login" />;

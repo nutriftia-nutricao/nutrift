@@ -184,11 +184,16 @@ export default function OnboardingStep9Screen() {
         onboarding_completed: true,
       };
 
-      // Trigger em auth.users já criou a linha em public.users no signUp; sempre fazemos UPDATE.
+      // Garante que sempre exista linha em public.users (casos em que o trigger ainda não criou o perfil).
       const { error: updateError } = await supabase
         .from("users")
-        .update(profileData)
-        .eq("id", userId);
+        .upsert(
+          {
+            id: userId,
+            ...profileData,
+          },
+          { onConflict: "id" }
+        );
 
       if (updateError) {
         Alert.alert(
@@ -212,6 +217,7 @@ export default function OnboardingStep9Screen() {
         useHydrationStore.getState().setWaterGoalL(user.hydration_ml / 1000);
       }
       if (!isExistingUser) clearCredentials();
+      router.replace("/(tabs)/");
     } catch (e) {
       console.error("handleStart onboarding:", e);
       Alert.alert(
@@ -220,9 +226,6 @@ export default function OnboardingStep9Screen() {
       );
     } finally {
       setLoading(false);
-      // Garante que, em ambiente web ou mobile, o usuário sempre vá para a tela principal
-      // após concluir o onboarding, mesmo que haja falha pontual ao persistir no servidor.
-      router.replace("/(tabs)/index");
     }
   };
 

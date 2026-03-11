@@ -1,120 +1,331 @@
 # TASKS.md — Nutrift
-> Ordem de execução. Marque conforme conclui.
-> Cada sessão = 1 prompt Cursor separado na pasta `cursor_prompts/`.
+> Ordem de execução realista e atualizada do projeto.
+> Regra principal: estabilizar o core antes de adicionar complexidade.
+> Cada sessão = 1 prompt separado em `cursor_prompts/`.
 
 ---
 
-## ANTES DE COMEÇAR
+## PRINCÍPIOS DE EXECUÇÃO
 
-```bash
-# 1. Aplicar migrations no Supabase (SQL Editor)
-# Cole o conteúdo de supabase/migrations/006_pending_fields.sql
-
-# 2. Verificar ambiente
-npx tsc --noEmit
-
-# 3. Confirmar variáveis de ambiente no .env
-EXPO_PUBLIC_SUPABASE_URL=
-EXPO_PUBLIC_SUPABASE_ANON_KEY=
-GEMINI_API_KEY=          ← apenas Edge Functions, não vai aqui
-ASAAS_API_KEY=           ← apenas Edge Functions, não vai aqui
-```
+- Sempre fazer **1 sessão por vez**
+- Sempre aplicar **patch mínimo**
+- Nunca reescrever telas inteiras sem necessidade
+- Nunca quebrar design aprovado
+- Sempre rodar ao final:
+  - `npx tsc --noEmit`
+- Antes de avançar:
+  - validar fluxo manual no app real (Android físico preferencialmente)
 
 ---
 
-## SESSÃO 1 — Banco + Store
-**Prompt:** `CURSOR_S1_banco_e_store.md`
+## STATUS ATUAL DO PROJETO (IMPORTANTE)
 
-- [ ] Migration 006 aplicada no Supabase
-- [ ] Bug 1 corrigido: `toggleFoodCheck` persiste no Supabase
-- [ ] Bug 2 corrigido: cálculo kcal × quantity_g / 100
-- [ ] Bug 3 corrigido: mock removido em produção
-- [ ] Hook `hooks/useUserPlan.ts` criado (`useIsPro` + `usePlanDaysRemaining`)
+### Já resolvido
+- [x] Deep link / QR não pode mais burlar auth em `plano-semanal`
+- [x] `app/plano-semanal.tsx` agora possui guarda de auth + onboarding
+- [x] `app/index.tsx` está mais estável e sem dependência desnecessária de `user?.id`
+- [x] Novo cadastro voltou a funcionar
+- [x] Erro `database error saving new user` foi causado por trigger legado `trg_sync_is_pro`
+- [x] Trigger legado `trg_sync_is_pro` removido temporariamente do banco
+- [x] Novo usuário agora entra no onboarding corretamente
+
+### Atenção crítica
+- [ ] Banco Supabase real possui **drift** em relação às migrations
+- [ ] Existe lógica legada fora do repositório (ex.: `sync_is_pro`)
+- [ ] Antes de avançar muito, validar que o banco real está alinhado com o app
+
+---
+
+# SESSÃO 1 — Estabilizar fluxo de cadastro + onboarding
+**Prompt sugerido:** `CURSOR_S1_fluxo_auth_onboarding.md`
+
+Objetivo: garantir que o fluxo principal do Nutrift está 100% confiável.
+
+- [ ] Revisar `app/(auth)/onboarding/step-1.tsx`
+- [ ] Revisar `app/(auth)/onboarding/step-8.tsx` (se existir)
+- [ ] Revisar `app/(auth)/onboarding/step-9.tsx`
+- [ ] Revisar `services/user.ts`
+- [ ] Revisar `app/index.tsx`
+
+### Validar:
+- [ ] Usuário novo cria conta sem erro
+- [ ] Usuário entra no onboarding automaticamente
+- [ ] Dados do onboarding persistem corretamente
+- [ ] Step final salva no `public.users`
+- [ ] `onboarding_completed = true` é salvo corretamente
+- [ ] Usuário cai em `/(tabs)/` ao concluir
+- [ ] Reabrir app não volta para onboarding
+- [ ] Sem regressão no login
+
+### Banco:
+- [ ] Confirmar se `public.users` está recebendo os dados esperados
+- [ ] Confirmar se não há outros triggers legados problemáticos
+- [ ] Não recriar `trg_sync_is_pro` ainda
+
+### Verificação final:
 - [ ] `npx tsc --noEmit` sem erros
 
 ---
 
-## SESSÃO 2 — Edge Functions
-**Prompt:** `CURSOR_S2_edge_functions.md`
+# SESSÃO 2 — Tela Hoje (core principal do produto)
+**Prompt sugerido:** `CURSOR_S2_tela_hoje_core.md`
 
-- [ ] `supabase/functions/gerar-plano/index.ts` criado
-- [ ] `supabase/functions/substituir-alimento/index.ts` criado
-- [ ] Secrets configurados: `supabase secrets set GEMINI_API_KEY=...`
-- [ ] Teste local: `supabase functions serve gerar-plano`
-- [ ] Deploy: `supabase functions deploy gerar-plano`
-- [ ] Deploy: `supabase functions deploy substituir-alimento`
+Objetivo: tornar a tela Hoje o centro do app, confiável e limpa.
 
----
+- [ ] Revisar `app/(tabs)/index.tsx`
+- [ ] Corrigir carregamento do plano do dia atual
+- [ ] Garantir data correta do dia selecionado
+- [ ] Garantir refeições corretas por dia
+- [ ] Garantir macros consumidos corretos
+- [ ] Garantir cálculo correto de calorias e macros por alimento
+- [ ] Corrigir `quantity_g` → cálculo kcal × quantity_g / 100 (se ainda houver inconsistência)
+- [ ] Remover qualquer mock residual em produção
+- [ ] Criar / validar constante `MEAL_EMOJIS`
+- [ ] Melhorar loading / empty state sem poluir UX
 
-## SESSÃO 3 — Tela Hoje
-**Prompt:** `CURSOR_S3_tela_hoje.md`
+### Free vs Pro (na tela Hoje)
+- [ ] Free vê conteúdo útil e não tela “morta”
+- [ ] Pro vê bloco completo
+- [ ] Blocos Pro envoltos em `{isPro && ...}` quando necessário
+- [ ] CTA de upgrade sutil e elegante
 
-- [ ] Bugs 4, 5, 6 corrigidos no `app/(tabs)/index.tsx`
-- [ ] Cards Free (vazios) implementados
-- [ ] Card de upgrade sutil implementado
-- [ ] Bloco Pro envolto em `{isPro && ...}`
-- [ ] Botão regenerar com countdown implementado
-- [ ] Constante `MEAL_EMOJIS` criada
+### Verificação final:
 - [ ] `npx tsc --noEmit` sem erros
 
 ---
 
-## SESSÃO 4 — Substituição + Paywall
-**Prompt:** `CURSOR_S4_substituicao_paywall.md`
+# SESSÃO 3 — Aderência diária + persistência real
+**Prompt sugerido:** `CURSOR_S3_aderencia_diaria.md`
 
-- [ ] `components/home/FoodSubstituteSheet.tsx` criado
-- [ ] Aba IA funcionando (chama Edge Function)
-- [ ] Aba manual funcionando (TACO + histórico com badge "✓ Já comi")
-- [ ] Tela `app/perfil/assinatura.tsx` criada com Free vs Pro lado a lado
-- [ ] Toggle Mensal / Anual funcionando
+Objetivo: fazer a aderência virar mecânica central do Nutrift.
+
+- [ ] Corrigir / validar `toggleFoodCheck`
+- [ ] Garantir persistência real no Supabase
+- [ ] Garantir que check de alimento reflita no dia correto
+- [ ] Garantir que o estado persiste ao reabrir app
+- [ ] Garantir que logs manuais não conflitam com plano semanal
+
+### Regras de aderência:
+- [ ] Aderência por alimento concluído
+- [ ] Aderência por refeição (agregada)
+- [ ] Aderência diária consolidada
+- [ ] Definir regra clara:
+  - `complete`
+  - `partial`
+  - `off_plan`
+  - `empty`
+
+### Verificação final:
 - [ ] `npx tsc --noEmit` sem erros
 
 ---
 
-## SESSÃO 5 — Onboarding + Cron + Deletar conta
-**Prompt:** `CURSOR_S5_onboarding_perfil_cron.md`
+# SESSÃO 4 — Calendário / visão semanal
+**Prompt sugerido:** `CURSOR_S4_calendario_aderencia.md`
 
-- [ ] `app/(auth)/onboarding/step-8.tsx` criado (estilo de dieta)
-- [ ] `app/(auth)/onboarding/step-9.tsx` criado (resultado do plano)
-- [ ] `calculateMacros` adicionado em `utils/mifflin.ts`
-- [ ] Step 9 salva perfil + macros + `onboarding_completed = true`
-- [ ] Cron job configurado no SQL Editor do Supabase
-- [ ] `supabase/functions/deletar-conta/index.ts` criado
+Objetivo: mostrar consistência visual e motivação.
+
+- [ ] Revisar calendário / week strip
+- [ ] Exibir status visual do dia
+- [ ] Mostrar dia atual com destaque correto
+- [ ] Navegar entre dias sem quebrar store
+- [ ] Preservar seleção de data
+- [ ] Garantir leitura correta da aderência por dia
+- [ ] Empty states elegantes
+
+### Status visuais:
+- [ ] `complete`
+- [ ] `partial`
+- [ ] `off_plan`
+- [ ] `empty`
+
+### Verificação final:
 - [ ] `npx tsc --noEmit` sem erros
 
 ---
 
-## PÓS-SESSÕES — Infra e lançamento
+# SESSÃO 5 — Free vs Pro + Trial de 7 dias
+**Prompt sugerido:** `CURSOR_S5_free_pro_trial.md`
 
-### Asaas (fazer manualmente)
-- [ ] Criar conta em asaas.com
-- [ ] Gerar chave de API (sandbox primeiro)
-- [ ] Configurar webhook: `URL/functions/v1/webhook-asaas`
-- [ ] Criar planos: mensal R$24,90 + anual R$179,00
+Objetivo: estruturar monetização sem quebrar o valor do Free.
+
+- [ ] Criar / revisar `hooks/useUserPlan.ts`
+- [ ] Expor `useIsPro`
+- [ ] Expor `usePlanDaysRemaining`
+- [ ] Garantir regra de trial de 7 dias
+- [ ] Garantir expiração correta do trial
+- [ ] Garantir `is_pro` derivado corretamente no app (sem depender do trigger legado por enquanto)
+
+### Regra atual recomendada:
+- Free:
+  - [ ] Acesso à tela Hoje
+  - [ ] Registro manual
+  - [ ] Acompanhamento básico
+- Pro:
+  - [ ] Plano semanal completo
+  - [ ] Substituição com IA
+  - [ ] Histórico mais inteligente
+  - [ ] Insights futuros
+- Trial:
+  - [ ] 7 dias ao concluir onboarding (ou conforme regra definida)
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 6 — Tela de assinatura / paywall inteligente
+**Prompt sugerido:** `CURSOR_S6_paywall_assinatura.md`
+
+Objetivo: vender sem parecer agressivo.
+
+- [ ] Criar / revisar `app/perfil/assinatura.tsx`
+- [ ] Free vs Pro lado a lado
+- [ ] Benefícios claros e curtos
+- [ ] Toggle Mensal / Anual
+- [ ] Botão “Assinar” pronto para integração
+- [ ] CTA sutil
+- [ ] UX sem poluição visual
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 7 — Geração do plano semanal (IA)
+**Prompt sugerido:** `CURSOR_S7_geracao_plano.md`
+
+Objetivo: consolidar a principal promessa do Nutrift.
+
+- [ ] Revisar `app/plano-semanal.tsx`
+- [ ] Revisar serviço de geração atual
+- [ ] Garantir que auth guard permanece intacto
+- [ ] Garantir que somente usuário autorizado acessa
+- [ ] Garantir que plano semanal é salvo corretamente
+- [ ] Garantir cooldown / countdown de regeneração
+- [ ] Garantir feedback visual elegante
+- [ ] Garantir que plano semanal não pode ser “spamado”
+
+### Edge Function / serviço
+- [ ] Criar ou estabilizar `supabase/functions/gerar-plano/index.ts` (se for manter esse nome)
+- [ ] Confirmar nome final da função (evitar duplicidade com `generate-weekly-plan`)
+- [ ] Padronizar 1 única fonte de geração
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 8 — Substituição de alimentos (manual + IA)
+**Prompt sugerido:** `CURSOR_S8_substituicao_alimentos.md`
+
+Objetivo: permitir flexibilidade sem destruir consistência.
+
+- [ ] Criar / revisar `components/home/FoodSubstituteSheet.tsx`
+- [ ] Aba IA funcionando
+- [ ] Aba manual funcionando
+- [ ] TACO funcionando
+- [ ] Histórico de alimentos funcionando
+- [ ] Badge “✓ Já comi” funcionando
+- [ ] Regras de substituição respeitando macros aproximados
+- [ ] UX rápida e limpa
+
+### Regra de produto:
+- [ ] Substituição pode existir
+- [ ] Mas não incentivar troca compulsiva
+- [ ] Se necessário, adicionar aviso de consistência
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 9 — Progresso / evolução
+**Prompt sugerido:** `CURSOR_S9_progresso.md`
+
+Objetivo: dar sensação de avanço real.
+
+- [ ] Criar visão de progresso
+- [ ] Peso / tendência
+- [ ] Hidratação
+- [ ] Calorias médias
+- [ ] Aderência semanal
+- [ ] Consistência
+- [ ] Comparações simples e motivadoras
+- [ ] Free vs Pro definido com elegância
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 10 — Agente Nuti (modo certo)
+**Prompt sugerido:** `CURSOR_S10_agente_nuti.md`
+
+Objetivo: Nuti ser útil, leve e sem virar bagunça.
+
+- [ ] Revisar `agente.tsx`
+- [ ] Manter respostas curtas, humanas e assertivas
+- [ ] Free = orientação leve / leitura
+- [ ] Pro = mais contexto, mais personalização
+- [ ] Não permitir que substitua o fluxo principal do app
+- [ ] Não poluir a UX
+- [ ] Garantir consistência com plano e dados do usuário
+
+### Verificação final:
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# SESSÃO 11 — Banco / normalização final
+**Prompt sugerido:** `CURSOR_S11_banco_normalizacao.md`
+
+Objetivo: alinhar o banco real ao repositório e remover dívidas técnicas.
+
+- [ ] Auditar triggers reais do banco
+- [ ] Auditar policies reais do banco
+- [ ] Auditar colunas reais vs migrations
+- [ ] Identificar drift
+- [ ] Criar migration(s) corretivas
+- [ ] Decidir se `sync_is_pro` volta ou se fica derivado no app/backend
+- [ ] Se recriar `sync_is_pro`, usar versão simples e segura
+- [ ] Garantir que signup nunca mais quebra
+
+### Verificação final:
+- [ ] Migrations alinhadas
+- [ ] `npx tsc --noEmit` sem erros
+
+---
+
+# INFRA E LANÇAMENTO (APÓS CORE ESTÁVEL)
+
+## Asaas
+- [ ] Criar conta no Asaas
+- [ ] Gerar chave sandbox
+- [ ] Configurar webhook: `/functions/v1/webhook-asaas`
+- [ ] Criar planos: mensal / anual
 - [ ] Implementar `supabase/functions/webhook-asaas/index.ts`
-- [ ] Conectar botão "Assinar" na tela de assinatura ao Asaas
+- [ ] Conectar botão “Assinar”
 
-### PostHog
-- [ ] `npm install posthog-react-native`
+## PostHog
+- [ ] Instalar `posthog-react-native`
 - [ ] Configurar em `app/_layout.tsx`
-- [ ] Adicionar `posthog.capture()` nos 8 eventos do `AGENTES.md`
+- [ ] Instrumentar eventos principais
 
-### Sentry
-- [ ] `npx @sentry/wizard@latest -i reactNative`
+## Sentry
+- [ ] Instalar via wizard
 - [ ] Envolver app com `Sentry.wrap()`
 
-### Build e Play Store
-- [ ] `npm install -g eas-cli`
-- [ ] `eas login`
-- [ ] Criar `eas.json` com profile production
-- [ ] `eas build --platform android --profile production`
-- [ ] Criar conta Google Play Console ($25)
-- [ ] Upload do AAB na Internal Testing Track
-- [ ] Testar no próprio dispositivo
+## Build / Play Store
+- [ ] Configurar `eas.json`
+- [ ] Build preview
+- [ ] Build production
+- [ ] Internal Testing
+- [ ] Validar no device real
 - [ ] Publicar
 
-### Web
-- [ ] Registrar `nutrift.com.br` na Hostinger
-- [ ] Publicar landing page (Lovable ou Next.js)
-- [ ] Hospedar Política de Privacidade em URL pública
-- [ ] Hospedar Termos de Uso em URL pública
+## Web
+- [ ] Registrar domínio
+- [ ] Publicar landing page
+- [ ] Política de privacidade
+- [ ] Termos de uso

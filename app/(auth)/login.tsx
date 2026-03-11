@@ -121,7 +121,7 @@ export default function LoginScreen() {
       if (!onboardingCompleted) {
         router.replace("/(auth)/onboarding/step-1");
       } else {
-        router.replace("/(tabs)/index");
+        router.replace("/(tabs)/");
       }
     } catch (error) {
       console.error("handleAuthSuccess error:", error);

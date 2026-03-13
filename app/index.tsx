@@ -14,6 +14,7 @@ export default function Index() {
   const [resolvedProfile, setResolvedProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | false>(null);
 
   const setUser = useUserStore((s) => s.setUser);
+  const localUser = useUserStore((s) => s.user);
   const setOnboardingData = useOnboardingStore((s) => s.setData);
 
   useEffect(() => {
@@ -91,13 +92,17 @@ export default function Index() {
 
   const profile = resolvedProfile === false ? null : resolvedProfile;
   if (profile) {
+    const localCompletionForSameUser =
+      localUser?.id === profile.id && localUser?.onboarding_completed === true;
     // Só vai para a tela principal se o onboarding foi explicitamente concluído (step-9).
     // Qualquer outro valor (undefined, null, false) mantém o usuário no onboarding.
-    const onboardingCompleted = profile.onboarding_completed === true;
+    const onboardingCompleted =
+      profile.onboarding_completed === true || localCompletionForSameUser;
     if (!onboardingCompleted) {
       return <Redirect href="/(auth)/onboarding/step-1" />;
     }
-    return <Redirect href="/(tabs)/" />;
+    // Redireciona explicitamente para "Hoje" (index das tabs)
+    return <Redirect href="/(tabs)/index" />;
   }
 
   return <Redirect href="/(auth)/login" />;

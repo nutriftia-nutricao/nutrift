@@ -99,8 +99,8 @@ export default function OnboardingStep4Screen() {
             max={showFatSlider ? maxFat : 50}
             step={0.5}
             unit="%"
-            majorStep={5}
-            mediumStep={2.5}
+            majorStep={10}
+            mediumStep={5}
             formatValue={(v) => v.toFixed(1)}
             onChange={(v) => setTargetBodyFatPct(v)}
           />

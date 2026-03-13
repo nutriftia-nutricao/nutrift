@@ -42,6 +42,25 @@ function formatDateBRCapitalized(date: Date): string {
   return s.replace(/\b\w/, (c) => c.toUpperCase());
 }
 
+function extractMissingUsersColumnFromError(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+  if (code !== "PGRST204" || !message.includes("users")) return null;
+
+  const patterns = [
+    /the ['"]([^'"]+)['"] column/i,
+    /column ['"]([^'"]+)['"]/i,
+    /['"]([^'"]+)['"] of ['"]users['"]/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
 export default function OnboardingStep9Screen() {
   const [loading, setLoading] = useState(false);
 
@@ -90,7 +109,7 @@ export default function OnboardingStep9Screen() {
       Alert.alert(
         "Dados de login",
         "Para continuar, faça seu cadastro na tela anterior (e-mail e senha).",
-        [{ text: "OK", onPress: () => router.replace("/(auth)/register") }]
+        [{ text: "OK", onPress: () => router.replace("/(auth)/login") }]
       );
       return;
     }
@@ -135,6 +154,24 @@ export default function OnboardingStep9Screen() {
 
         userId = newUserId;
         isExistingUser = false;
+      }
+
+      // Confirma que há sessão válida antes de escrever no banco (RLS depende de auth.uid()).
+      // Em alguns dispositivos o storage pode demorar para reidratar após signUp/setSession.
+      const sessionCheck = await getSession();
+      const sessionUserId = sessionCheck.data.session?.user?.id ?? null;
+      if (sessionUserId !== userId) {
+        await new Promise((r) => setTimeout(r, 400));
+        const retry = await getSession();
+        const retryUserId = retry.data.session?.user?.id ?? null;
+        if (retryUserId !== userId) {
+          Alert.alert(
+            "Sessão expirada",
+            "Não foi possível validar sua sessão para salvar seu perfil. Faça login novamente.",
+            [{ text: "OK", onPress: () => router.replace("/(auth)/login") }]
+          );
+          return;
+        }
       }
 
       const result = calcularNutricao({
@@ -185,28 +222,69 @@ export default function OnboardingStep9Screen() {
       };
 
       // Garante que sempre exista linha em public.users (casos em que o trigger ainda não criou o perfil).
-      const { error: updateError } = await supabase
-        .from("users")
-        .upsert(
-          {
-            id: userId,
-            ...profileData,
-          },
-          { onConflict: "id" }
-        );
+      const upsertPayload = {
+        id: userId,
+        ...profileData,
+      };
+      const payloadForUpsert: Record<string, unknown> = { ...upsertPayload };
+      const ignoredLegacyColumns: string[] = [];
+      let updateError: any = null;
+
+      // Compatibilidade com bancos legados: remove dinamicamente colunas ausentes (PGRST204)
+      // e tenta novamente sem quebrar a finalização do onboarding.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const result = await supabase
+          .from("users")
+          .upsert(payloadForUpsert, { onConflict: "id" });
+        updateError = result.error;
+        if (!updateError) break;
+
+        const missingColumn = extractMissingUsersColumnFromError(updateError);
+        if (!missingColumn || missingColumn === "id" || !(missingColumn in payloadForUpsert)) {
+          break;
+        }
+
+        ignoredLegacyColumns.push(missingColumn);
+        delete payloadForUpsert[missingColumn];
+      }
 
       if (updateError) {
+        console.error("[onboarding step-9] upsert users error:", {
+          code: (updateError as any).code,
+          message: updateError.message,
+          details: (updateError as any).details,
+          hint: (updateError as any).hint,
+        });
         Alert.alert(
           "Erro ao salvar perfil",
-          updateError.code === "23505"
+          // 23505 = unique violation (e-mail duplicado)
+          // 42501 = RLS / permissão negada
+          (updateError as any).code === "23505"
             ? "Este e-mail já está cadastrado. Tente fazer login."
+            : (updateError as any).code === "42501"
+              ? "Sem permissão para salvar seu perfil (sessão inválida). Faça login e tente novamente."
+              : __DEV__
+                ? `Não foi possível salvar seus dados.\n\n${(updateError as any).code ?? "—"}: ${updateError.message}`
             : "Não foi possível salvar seus dados. Verifique a conexão e tente novamente."
         );
         return;
       }
 
+      if (ignoredLegacyColumns.length > 0) {
+        console.warn("[onboarding step-9] legacy columns ignored on upsert:", ignoredLegacyColumns);
+      }
+
       const freshProfile = await fetchUserProfile(userId);
-      const user: User = freshProfile ?? {
+      const user: User = freshProfile
+        ? {
+            ...freshProfile,
+            // Se a coluna onboarding_completed nÃ£o existir no banco legado,
+            // mantemos o estado concluÃ­do localmente para nÃ£o voltar ao step-1.
+            onboarding_completed:
+              freshProfile.onboarding_completed === true ||
+              ignoredLegacyColumns.includes("onboarding_completed"),
+          }
+        : {
         id: userId,
         ...profileData,
         liked_foods: liked_foods ?? [],
@@ -217,7 +295,8 @@ export default function OnboardingStep9Screen() {
         useHydrationStore.getState().setWaterGoalL(user.hydration_ml / 1000);
       }
       if (!isExistingUser) clearCredentials();
-      router.replace("/(tabs)/");
+      // Vai explicitamente para a tela "Hoje" (index das tabs)
+      router.replace("/(tabs)/index");
     } catch (e) {
       console.error("handleStart onboarding:", e);
       Alert.alert(

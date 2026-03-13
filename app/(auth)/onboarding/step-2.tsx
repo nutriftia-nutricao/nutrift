@@ -75,7 +75,6 @@ export default function OnboardingStep2Screen() {
               unit="CM"
               majorStep={10}
               mediumStep={5}
-              displayStep={10}
               onChange={setHeight}
             />
 
@@ -85,7 +84,6 @@ export default function OnboardingStep2Screen() {
               min={weightMin}
               max={weightMax}
               step={0.1}
-              displayStep={10}
               unit="KG"
               majorStep={10}
               mediumStep={5}
@@ -112,8 +110,8 @@ export default function OnboardingStep2Screen() {
               max={100}
               step={0.5}
               unit="%"
-              majorStep={5}
-              mediumStep={2.5}
+              majorStep={10}
+              mediumStep={5}
               formatValue={(v) => v.toFixed(1)}
               onChange={setBodyFatPct}
             />

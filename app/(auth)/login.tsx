@@ -37,6 +37,7 @@ export default function LoginScreen() {
   const [loadingApple, setLoadingApple] = useState(false);
 
   const setUser = useUserStore((s) => s.setUser);
+  const localUser = useUserStore((s) => s.user);
   const setOnboardingData = useOnboardingStore((s) => s.setData);
 
   useEffect(() => {
@@ -115,13 +116,18 @@ export default function LoginScreen() {
       }
 
       // Só vai para a tela principal se o onboarding foi explicitamente concluído (step-9).
-      const onboardingCompleted = profile?.onboarding_completed === true;
+      // Fallback: mantém concluído localmente para bancos legados sem a coluna onboarding_completed.
+      const localCompletionForSameUser =
+        localUser?.id === profile?.id && localUser?.onboarding_completed === true;
+      const onboardingCompleted =
+        profile?.onboarding_completed === true || localCompletionForSameUser;
       const displayName = profile?.name ?? name ?? "";
       setOnboardingData({ name: displayName });
       if (!onboardingCompleted) {
         router.replace("/(auth)/onboarding/step-1");
       } else {
-        router.replace("/(tabs)/");
+        // Vai explicitamente para "Hoje" (index das tabs)
+        router.replace("/(tabs)/index");
       }
     } catch (error) {
       console.error("handleAuthSuccess error:", error);

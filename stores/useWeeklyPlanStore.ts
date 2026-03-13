@@ -105,7 +105,6 @@ export const useWeeklyPlanStore = create<WeeklyPlanState>((set, get) => ({
         )
         .eq("user_id", userId)
         .eq("week_start", weekStartISO)
-        .eq("status", "active")
         .maybeSingle();
 
       if (error) {

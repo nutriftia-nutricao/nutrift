@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import React, { useState } from "react";
 import { goBack } from "../../utils/navigation";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -9,9 +8,10 @@ import { Colors } from "../../constants/colors";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
+import { supabase } from "../../services/supabase";
+import { useUserStore } from "../../stores/useUserStore";
+import type { UserDietType, UserRestriction } from "../../types/user";
 
-const DIETS = ["Equilibrada", "Low carb", "Cetogênica", "Vegetariana", "Vegana", "Sem glúten", "Sem lactose"];
-const ALLERGIES = ["Amendoim", "Frutos do mar", "Ovos", "Leite", "Soja", "Trigo", "Nozes"];
 const MEALS = [
   { value: 2, label: "2 refeições" },
   { value: 3, label: "3 refeições" },
@@ -20,15 +20,68 @@ const MEALS = [
   { value: 6, label: "6 refeições" },
 ];
 
-export default function DietaPreferenciasScreen() {
-  const [selectedDiet, setSelectedDiet] = useState("Equilibrada");
-  const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
-  const [mealsPerDay, setMealsPerDay] = useState(4);
+const DIET_OPTIONS: { id: UserDietType; label: string }[] = [
+  { id: "onivoro", label: "Equilibrada" },
+  { id: "low_carb", label: "Low carb" },
+  { id: "vegetariano", label: "Vegetariana" },
+  { id: "vegano", label: "Vegana" },
+];
 
-  const toggleAllergy = (a: string) => {
-    setSelectedAllergies((prev) =>
-      prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]
+const RESTRICTION_OPTIONS: { id: UserRestriction; label: string }[] = [
+  { id: "sem_gluten", label: "Sem glúten" },
+  { id: "sem_lactose", label: "Sem lactose" },
+];
+
+export default function DietaPreferenciasScreen() {
+  const user = useUserStore((s) => s.user);
+  const updateUser = useUserStore((s) => s.updateUser);
+
+  const [selectedDiet, setSelectedDiet] = useState<UserDietType>(user?.diet_type ?? "onivoro");
+  const [selectedRestrictions, setSelectedRestrictions] = useState<UserRestriction[]>(
+    user?.restrictions ?? []
+  );
+  const [mealsPerDay, setMealsPerDay] = useState<number>(user?.meals_per_day ?? 4);
+  const [saving, setSaving] = useState(false);
+
+  const toggleRestriction = (r: UserRestriction) => {
+    setSelectedRestrictions((prev) =>
+      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
     );
+  };
+
+  const handleSave = async () => {
+    if (!user?.id) {
+      Alert.alert("Erro", "Faça login novamente para salvar suas preferências.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updates = {
+        diet_type: selectedDiet,
+        restrictions: selectedRestrictions,
+        meals_per_day: mealsPerDay,
+      };
+
+      const { error } = await supabase
+        .from("users")
+        .update(updates)
+        .eq("id", user.id);
+
+      if (error) {
+        Alert.alert("Erro", "Não foi possível salvar. Tente novamente.");
+        return;
+      }
+
+      updateUser(updates);
+      Alert.alert("Salvo!", "Preferências atualizadas ✓");
+      goBack();
+    } catch (e) {
+      console.error("[perfil/dieta-preferencias] save error:", e);
+      Alert.alert("Erro", "Não foi possível salvar.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -44,29 +97,40 @@ export default function DietaPreferenciasScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionLabel}>TIPO DE DIETA</Text>
         <View style={styles.card}>
-          {DIETS.map((d, i) => (
-            <React.Fragment key={d}>
+          {DIET_OPTIONS.map((d, i) => (
+            <React.Fragment key={d.id}>
               <Pressable
-                style={[styles.optionRow, selectedDiet === d && styles.optionRowActive]}
-                onPress={() => setSelectedDiet(d)}
+                style={[styles.optionRow, selectedDiet === d.id && styles.optionRowActive]}
+                onPress={() => setSelectedDiet(d.id)}
               >
-                <Text style={[styles.optionLabel, selectedDiet === d && styles.optionLabelActive]}>{d}</Text>
-                {selectedDiet === d && <Ionicons name="checkmark-circle" size={20} color={Colors.greenDark} />}
+                <Text style={[styles.optionLabel, selectedDiet === d.id && styles.optionLabelActive]}>
+                  {d.label}
+                </Text>
+                {selectedDiet === d.id && (
+                  <Ionicons name="checkmark-circle" size={20} color={Colors.greenDark} />
+                )}
               </Pressable>
-              {i < DIETS.length - 1 && <View style={styles.divider} />}
+              {i < DIET_OPTIONS.length - 1 && <View style={styles.divider} />}
             </React.Fragment>
           ))}
         </View>
 
-        <Text style={styles.sectionLabel}>ALERGIAS E RESTRIÇÕES</Text>
+        <Text style={styles.sectionLabel}>RESTRIÇÕES</Text>
         <View style={styles.chipWrap}>
-          {ALLERGIES.map((a) => (
+          {RESTRICTION_OPTIONS.map((r) => (
             <Pressable
-              key={a}
-              style={[styles.chip, selectedAllergies.includes(a) && styles.chipActive]}
-              onPress={() => toggleAllergy(a)}
+              key={r.id}
+              style={[styles.chip, selectedRestrictions.includes(r.id) && styles.chipActive]}
+              onPress={() => toggleRestriction(r.id)}
             >
-              <Text style={[styles.chipText, selectedAllergies.includes(a) && styles.chipTextActive]}>{a}</Text>
+              <Text
+                style={[
+                  styles.chipText,
+                  selectedRestrictions.includes(r.id) && styles.chipTextActive,
+                ]}
+              >
+                {r.label}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -88,10 +152,17 @@ export default function DietaPreferenciasScreen() {
         </View>
 
         <Pressable
-          style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
-          onPress={() => { Alert.alert("Salvo!"); goBack(); }}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            pressed && { opacity: 0.8 },
+            saving && { opacity: 0.6 },
+          ]}
+          onPress={handleSave}
+          disabled={saving}
         >
-          <Text style={styles.saveBtnText}>Salvar preferências</Text>
+          <Text style={styles.saveBtnText}>
+            {saving ? "Salvando..." : "Salvar preferências"}
+          </Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>

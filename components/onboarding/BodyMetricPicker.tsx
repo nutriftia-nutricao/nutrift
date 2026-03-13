@@ -65,7 +65,6 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const ITEM_WIDTH = 10;
-const FOCUS_RANGE = 2.5; // ticks within this distance get interpolation
 const CONTINUOUS_CONTENT_WIDTH = 1000; // largura virtual da régua no modo displayStep
 
 function roundToStep(value: number, step: number): number {
@@ -88,7 +87,8 @@ function RulerPicker({
 }: RulerPickerProps) {
   const scrollRef = React.useRef<ScrollView | null>(null);
   const [containerWidth, setContainerWidth] = React.useState(0);
-  const isScrollingRef = React.useRef(false);
+  const isProgrammaticSnapRef = React.useRef(false);
+  const releaseProgrammaticSnapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScrollSyncedRef = React.useRef(false);
   const scrollXRef = React.useRef(0);
 
@@ -138,84 +138,141 @@ function RulerPicker({
 
   React.useEffect(() => {
     if (useContinuous && containerWidth > 0) {
+      if (range <= 0) return;
       const targetX = ((clamp(value, min, max) - min) / range) * CONTINUOUS_CONTENT_WIDTH;
       const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
-      if (!isScrollingRef.current && scrollRef.current) {
+      if (scrollRef.current && Math.abs(clampedX - scrollXRef.current) > 0.5) {
         scrollRef.current.scrollTo({ x: clampedX, animated: false });
         scrollXRef.current = clampedX;
         initialScrollSyncedRef.current = true;
       }
-    } else if (!useContinuous && !isScrollingRef.current && scrollRef.current && values.length > 0) {
+    } else if (!useContinuous && scrollRef.current && values.length > 0) {
       const targetX = selectedIndex * ITEM_WIDTH;
-      scrollRef.current.scrollTo({ x: targetX, animated: false });
-      scrollXRef.current = targetX;
-      initialScrollSyncedRef.current = true;
+      if (Math.abs(targetX - scrollXRef.current) > 0.5) {
+        scrollRef.current.scrollTo({ x: targetX, animated: false });
+        scrollXRef.current = targetX;
+        initialScrollSyncedRef.current = true;
+      }
     }
   }, [useContinuous, value, min, max, range, containerWidth, selectedIndex, values.length, maxScrollXContinuous]);
 
-  const snapToNearest = React.useCallback(
-    (offsetX: number) => {
+  const commitValueFromOffset = React.useCallback(
+    (offsetX: number, alignVisualForContinuous: boolean) => {
       if (useContinuous) {
+        if (range <= 0) return;
         const centerPos = offsetX + (containerWidth > 0 ? containerWidth / 2 - sidePadding : 0);
         const rawValue = min + (centerPos / CONTINUOUS_CONTENT_WIDTH) * range;
         const snapped = clamp(roundToStep(rawValue, step), min, max);
-        const targetX = ((snapped - min) / range) * CONTINUOUS_CONTENT_WIDTH;
-        const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
-        if (scrollRef.current) {
-          isScrollingRef.current = true;
-          scrollRef.current.scrollTo({ x: clampedX, animated: true });
-          scrollXRef.current = clampedX;
-        }
+        const isMajor = isMultipleOf(snapped, majorStep);
+        onCenterChange(snapped, isMajor);
         const normalized = Number(roundToStep(snapped, step).toFixed(step < 1 ? 1 : 0));
-        if (normalized !== value) onChange(normalized);
-        setTimeout(() => { isScrollingRef.current = false; }, 320);
+        if (normalized !== value) {
+          onChange(normalized);
+        }
+
+        if (alignVisualForContinuous && scrollRef.current && range > 0) {
+          const targetX = ((snapped - min) / range) * CONTINUOUS_CONTENT_WIDTH;
+          const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
+          if (Math.abs(clampedX - offsetX) > 0.5) {
+            isProgrammaticSnapRef.current = true;
+            scrollRef.current.scrollTo({ x: clampedX, animated: true });
+            scrollXRef.current = clampedX;
+            if (releaseProgrammaticSnapTimerRef.current) {
+              clearTimeout(releaseProgrammaticSnapTimerRef.current);
+            }
+            releaseProgrammaticSnapTimerRef.current = setTimeout(() => {
+              isProgrammaticSnapRef.current = false;
+            }, 180);
+          }
+        }
       } else {
         const rawIndex = Math.round(offsetX / ITEM_WIDTH);
         const index = Math.max(0, Math.min(values.length - 1, rawIndex));
-        if (scrollRef.current) {
-          isScrollingRef.current = true;
-          scrollRef.current.scrollTo({ x: index * ITEM_WIDTH, animated: true });
-          scrollXRef.current = index * ITEM_WIDTH;
-        }
         const newValue = clamp(values[index], min, max);
+        const isMajor = isMultipleOf(newValue, majorStep);
+        onCenterChange(newValue, isMajor);
         const normalized = Number(roundToStep(newValue, step).toFixed(step < 1 ? 1 : 0));
-        if (normalized !== value) onChange(normalized);
-        setTimeout(() => { isScrollingRef.current = false; }, 320);
+        if (normalized !== value) {
+          onChange(normalized);
+        }
       }
     },
-    [useContinuous, values, min, max, range, step, value, onChange, containerWidth, sidePadding, maxScrollXContinuous]
+    [
+      useContinuous,
+      containerWidth,
+      sidePadding,
+      min,
+      max,
+      range,
+      step,
+      maxScrollXContinuous,
+      value,
+      onChange,
+      majorStep,
+      onCenterChange,
+      values,
+    ]
   );
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    // Evita que o primeiro frame (scroll nativo em 0) sobrescreva o valor correto antes do scrollTo programático
     if (useContinuous && !initialScrollSyncedRef.current && offsetX < 10 && value > min) return;
     initialScrollSyncedRef.current = true;
     scrollXRef.current = offsetX;
 
-    if (useContinuous && containerWidth > 0 && range > 0) {
-      const centerPos = offsetX + (containerWidth / 2 - sidePadding);
+    if (isProgrammaticSnapRef.current) return;
+
+    if (useContinuous && range > 0) {
+      const centerPos = offsetX + (containerWidth > 0 ? containerWidth / 2 - sidePadding : 0);
       const rawValue = min + (centerPos / CONTINUOUS_CONTENT_WIDTH) * range;
-      const snapped = clamp(roundToStep(rawValue, step), min, max);
-      const isMajor = isMultipleOf(snapped, majorStep);
-      onCenterChange(snapped, isMajor);
-    } else if (!useContinuous) {
-      const centerIndexContinuous = containerWidth > 0 ? offsetX / ITEM_WIDTH : selectedIndex;
-      const centeredIndex = Math.round(centerIndexContinuous);
-      const clampedCenteredIndex = Math.max(0, Math.min(values.length - 1, centeredIndex));
-      const centeredValue = values[clampedCenteredIndex];
-      const isMajor = isMultipleOf(centeredValue, majorStep);
-      onCenterChange(centeredValue, isMajor);
+      const preview = clamp(roundToStep(rawValue, step), min, max);
+      onCenterChange(preview, isMultipleOf(preview, majorStep));
+    } else {
+      const rawIndex = Math.round(offsetX / ITEM_WIDTH);
+      const index = Math.max(0, Math.min(values.length - 1, rawIndex));
+      const preview = clamp(values[index], min, max);
+      onCenterChange(preview, isMultipleOf(preview, majorStep));
     }
   };
 
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    snapToNearest(event.nativeEvent.contentOffset.x);
+  const handleScrollBeginDrag = () => {
+    // reservado para futuras interações do gesto
   };
 
-  /** Altura fixa dos ticks para todos os cards iguais ao modelo Altura: traços curtos e finos, major um pouco maior */
+  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const velocityX = Math.abs(event.nativeEvent.velocity?.x ?? 0);
+    if (velocityX < 0.05) {
+      commitValueFromOffset(event.nativeEvent.contentOffset.x, useContinuous);
+    }
+  };
+
+  const handleMomentumScrollBegin = () => {
+    // evento mantido para sincronismo de ciclo de scroll
+  };
+
+  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isProgrammaticSnapRef.current) {
+      isProgrammaticSnapRef.current = false;
+      return;
+    }
+    commitValueFromOffset(event.nativeEvent.contentOffset.x, useContinuous);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (releaseProgrammaticSnapTimerRef.current) {
+        clearTimeout(releaseProgrammaticSnapTimerRef.current);
+      }
+    };
+  }, []);
+
+  /** Altura fixa dos ticks:
+   * - major (10 em 10): 40
+   * - medium (5 em 5): 25
+   * - minor (1 em 1): 10
+   */
   const getUniformTickHeight = (isMajor: boolean, isMedium: boolean) =>
-    isMajor ? 24 : isMedium ? 14 : 10;
+    isMajor ? 40 : isMedium ? 25 : 10;
 
   if (useContinuous) {
     const tickPositions = displayValues.map((tickValue) => ({
@@ -237,9 +294,11 @@ function RulerPicker({
             width: CONTINUOUS_CONTENT_WIDTH + 2 * sidePadding,
             minWidth: CONTINUOUS_CONTENT_WIDTH + 2 * sidePadding,
           }}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onMomentumScrollBegin={handleMomentumScrollBegin}
           onScroll={handleScroll}
-          onScrollEndDrag={handleScrollEnd}
-          onMomentumScrollEnd={handleScrollEnd}
+          onScrollEndDrag={handleScrollEndDrag}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
           scrollEventThrottle={16}
         >
           <View style={[styles.continuousRuler, { width: CONTINUOUS_CONTENT_WIDTH }]}>
@@ -253,7 +312,7 @@ function RulerPicker({
                   <View style={styles.tickWrapper}>
                     <View style={[styles.tick, { height }]} />
                   </View>
-                  {isMajor && (
+                  {(isMajor || isMedium) && (
                     <Text style={styles.tickLabel}>
                       {formatValue ? formatValue(tickValue) : tickValue}
                     </Text>
@@ -277,10 +336,13 @@ function RulerPicker({
         decelerationRate="fast"
         snapToInterval={ITEM_WIDTH}
         snapToAlignment="center"
+        disableIntervalMomentum={false}
         contentContainerStyle={{ paddingHorizontal: sidePadding }}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onMomentumScrollBegin={handleMomentumScrollBegin}
         onScroll={handleScroll}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollEnd={handleScrollEnd}
+        onScrollEndDrag={handleScrollEndDrag}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
         scrollEventThrottle={16}
       >
         {values.map((tickValue, index) => {
@@ -293,7 +355,7 @@ function RulerPicker({
               <View style={styles.tickWrapper}>
                 <View style={[styles.tick, { height }]} />
               </View>
-              {isMajor && (
+              {(isMajor || isMedium) && (
                 <Text style={styles.tickLabel}>
                   {formatValue ? formatValue(tickValue) : tickValue}
                 </Text>
@@ -302,7 +364,6 @@ function RulerPicker({
           );
         })}
       </ScrollView>
-      <View pointerEvents="none" style={styles.centerLine} />
     </View>
   );
 }
@@ -343,27 +404,6 @@ export function BodyMetricPicker({
   // Evita persistir valor "espúrio" quando a régua ainda está em scroll 0 (valor = min)
   // e o store tem um valor real (ex: peso 75) — evita que "35 kg" apareça na tela de metas.
   const isSpuriousMin = (v: number) => v === min && value > min + 1;
-
-  // O picker atualiza `displayValue` continuamente, mas o `onChange` só dispara no "snap" do scroll.
-  // Se o usuário navegar rápido (ex.: apertar Continuar com o scroll ainda em movimento),
-  // o valor visto na UI pode não ter sido persistido no store. Garantimos a persistência:
-  // 1) com debounce curto durante a interação
-  // 2) no unmount (troca de tela) como fallback final
-  // Não persistir valor mínimo espúrio (régua em 0 antes do scroll inicial).
-  React.useEffect(() => {
-    if (displayValue === lastEmittedRef.current) return;
-    if (isSpuriousMin(displayValue)) return;
-
-    const t = setTimeout(() => {
-      const v = latestDisplayRef.current;
-      if (v !== lastEmittedRef.current && !isSpuriousMin(v)) {
-        lastEmittedRef.current = v;
-        onChange(v);
-      }
-    }, 120);
-
-    return () => clearTimeout(t);
-  }, [displayValue, onChange, min, value]);
 
   React.useEffect(() => {
     return () => {

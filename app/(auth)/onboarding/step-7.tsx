@@ -167,8 +167,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    height: 80,
+    minHeight: 80,
     paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
     borderRadius: Radius.xl,
     backgroundColor: Colors.surface,
     borderWidth: 1,
@@ -208,6 +209,7 @@ const styles = StyleSheet.create({
   },
   ritmoTextBlock: {
     flex: 1,
+    minWidth: 0,
     justifyContent: "center",
   },
   ritmoTitleRow: {
@@ -221,6 +223,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: Colors.text,
+    flexShrink: 1,
   },
   ritmoBadge: {
     backgroundColor: Colors.primaryDark,
@@ -240,6 +243,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     marginTop: 2,
+    flexShrink: 1,
   },
   ritmoRadio: {
     width: 24,

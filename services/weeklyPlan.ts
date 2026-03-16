@@ -1,4 +1,4 @@
-import { getSession } from "./auth";
+import { supabase } from "./supabase";
 
 const EDGE_FUNCTION_NAME = "gerar-plano";
 
@@ -18,7 +18,8 @@ export interface GenerateWeeklyPlanResult {
   data?: {
     success: boolean;
     error?: string;
-    days_remaining?: number;
+    generations_used?: number;
+    generations_limit?: number;
   };
   error?: Error;
 }
@@ -31,53 +32,44 @@ export async function generateWeeklyPlan(
   _userId: string,
   _preferences?: GenerateWeeklyPlanPreferences
 ): Promise<GenerateWeeklyPlanResult> {
-  const baseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  if (!baseUrl) {
-    return { error: new Error("Supabase URL não configurada") };
-  }
-
-  const { data: sessionData, error: sessionError } = await getSession();
-  const token = sessionData.session?.access_token;
-  if (sessionError || !token) {
-    return { error: sessionError ?? new Error("Sessão não encontrada") };
-  }
-
-  const url = `${baseUrl}/functions/v1/${EDGE_FUNCTION_NAME}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
-
   try {
-    const res = await fetch(url, {
+    const { data: { session } } = await supabase.auth.getSession();
+    console.log("[gerar-plano] session user:", session?.user?.email ?? "NULL");
+    console.log("[gerar-plano] token type:", session?.access_token ? "JWT present" : "NO TOKEN");
+
+    if (!session?.access_token) {
+      return { data: { success: false, error: "Sessão expirada. Faça login novamente." } };
+    }
+
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+    const res = await fetch(`${supabaseUrl}/functions/v1/${EDGE_FUNCTION_NAME}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        "Authorization": `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({}),
-      signal: controller.signal,
     });
-    clearTimeout(timeoutId);
 
-    const json = (await res.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-      days_remaining?: number;
-    };
+    console.log("[gerar-plano] HTTP status:", res.status);
+    const json = await res.json() as { success?: boolean; error?: string; generations_used?: number; generations_limit?: number };
+    console.log("[gerar-plano] response:", JSON.stringify(json));
 
-    if (!res.ok) {
+    if (!json.success) {
       return {
         data: {
           success: false,
           error: json.error ?? "Erro ao gerar plano",
-          days_remaining: json.days_remaining,
+          generations_used: json.generations_used,
+          generations_limit: json.generations_limit,
         },
       };
     }
 
-    return { data: { success: json.success === true } };
+    return { data: { success: true } };
   } catch (err) {
-    clearTimeout(timeoutId);
     const message = err instanceof Error ? err.message : "Erro de rede";
+    console.error("[gerar-plano] catch:", message);
     return {
       data: { success: false, error: message },
       error: err instanceof Error ? err : new Error(message),

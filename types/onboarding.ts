@@ -1,6 +1,6 @@
 export type Sex = "masculino" | "feminino";
 
-export type Goal = "perder_gordura" | "ganhar_massa" | "manter" | "so_acompanhar";
+export type Goal = "perder_gordura" | "ganhar_massa" | "definir_corpo" | "recomposicao";
 
 export type Activity =
   | "sedentario"

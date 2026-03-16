@@ -1,15 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import React, { useState } from "react";
 import { goBack } from "../../utils/navigation";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "../../constants/colors";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
-import type { UserActivity } from "../../types/user";
+import { supabase } from "../../services/supabase";
+import { useActivityStore } from "../../stores/useActivityStore";
+import { useUserStore } from "../../stores/useUserStore";
+import type { UserActivity, UserWorkoutType } from "../../types/user";
 
 const ACTIVITIES: { key: UserActivity; label: string; subtitle: string }[] = [
   { key: "sedentario", label: "Sedentário", subtitle: "Pouco ou nenhum exercício" },
@@ -18,15 +20,69 @@ const ACTIVITIES: { key: UserActivity; label: string; subtitle: string }[] = [
   { key: "muito_ativo", label: "Muito ativo", subtitle: "6–7 dias por semana" },
 ];
 
+const WORKOUT_TYPES: { key: UserWorkoutType; label: string; subtitle: string }[] = [
+  { key: "nao_pratico", label: "Não pratico", subtitle: "Sem rotina de treino" },
+  { key: "casa", label: "Em casa", subtitle: "Treino em casa" },
+  { key: "academia", label: "Academia", subtitle: "Treino em academia" },
+];
+
 const DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
 export default function TreinoScreen() {
-  const [activity, setActivity] = useState<UserActivity>("moderado");
+  const user = useUserStore((s) => s.user);
+  const updateUser = useUserStore((s) => s.updateUser);
+
+  const [activity, setActivity] = useState<UserActivity>(user?.activity ?? "moderado");
+  const [workoutType, setWorkoutType] = useState<UserWorkoutType>(
+    user?.workout_type ?? "nao_pratico"
+  );
+  const [workoutTime, setWorkoutTime] = useState<string>(user?.workout_time ?? "");
   const [trainingDays, setTrainingDays] = useState<string[]>(["Seg", "Qua", "Sex"]);
-  const [goalMinutes, setGoalMinutes] = useState(45);
+  const [goalMinutes, setGoalMinutes] = useState<number>(
+    useActivityStore.getState().goalMinutesPerDay
+  );
+  const [saving, setSaving] = useState(false);
 
   const toggleDay = (d: string) =>
     setTrainingDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+
+  const handleSave = async () => {
+    if (!user?.id) {
+      Alert.alert("Erro", "Faça login novamente para salvar suas configurações.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const normalizedWorkoutTime = workoutTime.trim() || null;
+      const updates = {
+        activity,
+        workout_type: workoutType,
+        workout_time: normalizedWorkoutTime,
+      };
+
+      const { error } = await supabase
+        .from("users")
+        .update(updates)
+        .eq("id", user.id);
+
+      if (error) {
+        Alert.alert("Erro", "Não foi possível salvar. Tente novamente.");
+        return;
+      }
+
+      // Meta de atividade é local (store), não faz parte do perfil no banco hoje.
+      useActivityStore.getState().setGoalMinutes(goalMinutes);
+      updateUser(updates);
+      Alert.alert("Salvo!", "Configurações atualizadas ✓");
+      goBack();
+    } catch (e) {
+      console.error("[perfil/treino] save error:", e);
+      Alert.alert("Erro", "Não foi possível salvar.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
@@ -34,7 +90,7 @@ export default function TreinoScreen() {
         <Pressable style={styles.backBtn} onPress={() => goBack()}>
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Treino</Text>
+        <Text style={styles.headerTitle}>Atividades</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -58,6 +114,45 @@ export default function TreinoScreen() {
               {i < ACTIVITIES.length - 1 && <View style={styles.divider} />}
             </React.Fragment>
           ))}
+        </View>
+
+        <Text style={styles.sectionLabel}>TIPO DE TREINO</Text>
+        <View style={styles.card}>
+          {WORKOUT_TYPES.map((t, i) => (
+            <React.Fragment key={t.key}>
+              <Pressable
+                style={[styles.optionRow, workoutType === t.key && styles.optionRowActive]}
+                onPress={() => setWorkoutType(t.key)}
+              >
+                <View style={styles.optionText}>
+                  <Text style={[styles.optionLabel, workoutType === t.key && styles.optionLabelActive]}>
+                    {t.label}
+                  </Text>
+                  <Text style={styles.optionSub}>{t.subtitle}</Text>
+                </View>
+                <View style={[styles.radio, workoutType === t.key && styles.radioActive]}>
+                  {workoutType === t.key && <View style={styles.radioDot} />}
+                </View>
+              </Pressable>
+              {i < WORKOUT_TYPES.length - 1 && <View style={styles.divider} />}
+            </React.Fragment>
+          ))}
+        </View>
+
+        <Text style={styles.sectionLabel}>HORÁRIO DO TREINO (OPCIONAL)</Text>
+        <View style={styles.card}>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.fieldLabel}>Ex.: 07:30 ou Noite</Text>
+            <TextInput
+              value={workoutTime}
+              onChangeText={setWorkoutTime}
+              placeholder="—"
+              placeholderTextColor={Colors.textMuted}
+              style={styles.fieldInput}
+              autoCapitalize="sentences"
+              autoCorrect={false}
+            />
+          </View>
         </View>
 
         <Text style={styles.sectionLabel}>DIAS DE TREINO</Text>
@@ -90,10 +185,17 @@ export default function TreinoScreen() {
         </View>
 
         <Pressable
-          style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
-          onPress={() => { Alert.alert("Salvo!"); goBack(); }}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            pressed && { opacity: 0.8 },
+            saving && { opacity: 0.6 },
+          ]}
+          onPress={handleSave}
+          disabled={saving}
         >
-          <Text style={styles.saveBtnText}>Salvar configurações</Text>
+          <Text style={styles.saveBtnText}>
+            {saving ? "Salvando..." : "Salvar configurações"}
+          </Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -108,6 +210,9 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: Spacing.xl, paddingBottom: 110, gap: Spacing.sm },
   sectionLabel: { ...Typography.label, fontSize: 11, color: Colors.textMuted, marginTop: Spacing.md, marginLeft: Spacing.xs },
   card: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, overflow: "hidden" },
+  fieldWrap: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  fieldLabel: { ...Typography.caption, color: Colors.textSecondary, marginBottom: 4 },
+  fieldInput: { ...Typography.body, color: Colors.text, paddingVertical: 6 },
   optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   optionRowActive: { backgroundColor: Colors.greenLight },
   optionText: { flex: 1 },

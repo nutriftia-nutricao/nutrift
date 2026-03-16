@@ -86,7 +86,7 @@ export default function OnboardingStep5Screen() {
                 <Ionicons
                   name={opt.icon}
                   size={24}
-                  color={isSelected ? Colors.primary : Colors.textSecondary}
+                  color={isSelected ? Colors.textInverse : Colors.textSecondary}
                 />
               </View>
               <View style={styles.textBlock}>

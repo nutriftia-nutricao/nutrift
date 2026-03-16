@@ -1,14 +1,17 @@
 import "react-native-gesture-handler";
 
+import { Session } from "@supabase/supabase-js";
 import { Stack, router, useSegments } from "expo-router";
 import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Colors } from "../constants/colors";
 import { supabase } from "../services/supabase";
+import { fetchUserProfile } from "../services/user";
+import { useUserStore } from "../stores/useUserStore";
 
 // Garante html/body com altura e fundo no web (evita tela branca)
 if (typeof document !== "undefined") {
@@ -27,6 +30,55 @@ const rootStyle = [
 
 export default function RootLayout() {
   const segments = useSegments();
+  const [session, setSession] = useState<Session | null>(null);
+  const [profileChecked, setProfileChecked] = useState(false);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Guard de autenticação no mount: verifica sessão e onboarding antes de qualquer redirect
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
+      setSession(session);
+
+      if (!session) {
+        setProfileChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      fetchUserProfile(session.user.id).then((profile) => {
+        if (cancelled) return;
+        if (profile) {
+          useUserStore.getState().setUser(profile);
+          setOnboardingDone(profile.onboarding_completed === true);
+        }
+        setProfileChecked(true);
+        setLoading(false);
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  // Redirect baseado no estado de sessão e onboarding
+  useEffect(() => {
+    if (loading || !profileChecked) return;
+
+    if (!session) {
+      router.replace("/(auth)/login");
+      return;
+    }
+
+    if (!onboardingDone) {
+      router.replace("/(auth)/onboarding/step-1");
+      return;
+    }
+
+    router.replace("/(tabs)");
+  }, [loading, profileChecked, session, onboardingDone]);
 
   useEffect(() => {
     // Redireciona para login só em SIGNED_OUT quando já estamos na área autenticada (tabs),
@@ -42,6 +94,8 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, [segments]);
+
+  if (loading) return null;
 
   return (
     <ErrorBoundary>

@@ -17,9 +17,11 @@ import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
 import {
   useActivityStore,
+  calcKcalBurned,
   type ActivityIntensity,
   type ActivityType,
 } from "../../stores/useActivityStore";
+import { useUserStore } from "../../stores/useUserStore";
 import { getTodayISO } from "../../utils/date";
 
 const ACTIVITY_TYPES: {
@@ -28,7 +30,7 @@ const ACTIVITY_TYPES: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
 }[] = [
   { value: "caminhada", label: "Caminhada", icon: "walk-outline" },
-  { value: "corrida", label: "Corrida", icon: "run" },
+  { value: "corrida", label: "Corrida", icon: "footsteps-outline" },
   { value: "academia", label: "Academia", icon: "barbell-outline" },
 ];
 
@@ -57,6 +59,7 @@ export function ActivityModal({
 }: ActivityModalProps) {
   const today = date ?? getTodayISO();
   const addEntry = useActivityStore((s) => s.addEntry);
+  const weightKg = useUserStore((s) => s.user?.weight_kg ?? 70);
 
   const [activityType, setActivityType] = useState<ActivityType>("caminhada");
   const [exerciseName, setExerciseName] = useState(DEFAULT_NAMES.caminhada);
@@ -71,11 +74,14 @@ export function ActivityModal({
   const handleSave = () => {
     const min = parseInt(duration.trim(), 10);
     if (!Number.isFinite(min) || min < 1) return;
+    const durationClamped = Math.min(min, 999);
+    const kcal_burned = calcKcalBurned(activityType, intensity, durationClamped, weightKg);
     addEntry({
       type: activityType,
       name: exerciseName.trim() || DEFAULT_NAMES[activityType],
-      duration_min: Math.min(min, 999),
+      duration_min: durationClamped,
       intensity,
+      kcal_burned,
       date: today,
     });
     setDuration("");
@@ -86,6 +92,13 @@ export function ActivityModal({
   };
 
   const canSave = duration.trim().length > 0 && parseInt(duration.trim(), 10) >= 1;
+
+  /** Preview de kcal em tempo real enquanto o usuário digita */
+  const previewKcal = (() => {
+    const min = parseInt(duration.trim(), 10);
+    if (!Number.isFinite(min) || min < 1) return null;
+    return calcKcalBurned(activityType, intensity, Math.min(min, 999), weightKg);
+  })();
 
   return (
     <Modal
@@ -164,6 +177,15 @@ export function ActivityModal({
             />
             <Text style={styles.durationUnit}>minutos</Text>
           </View>
+
+          {previewKcal !== null && (
+            <View style={styles.previewRow}>
+              <Ionicons name="flame-outline" size={14} color={Colors.carbo} />
+              <Text style={styles.previewText}>
+                Estimativa: ~{previewKcal} kcal queimadas
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.sectionLabel}>INTENSIDADE</Text>
           <View style={styles.intensityRow}>
@@ -313,6 +335,19 @@ const styles = StyleSheet.create({
   durationUnit: {
     ...Typography.body,
     color: Colors.greenDark,
+    fontWeight: "600",
+  },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: -Spacing.md,
+    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.sm,
+  },
+  previewText: {
+    ...Typography.caption,
+    color: Colors.carbo,
     fontWeight: "600",
   },
   intensityRow: {

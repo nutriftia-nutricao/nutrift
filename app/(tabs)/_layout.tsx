@@ -3,8 +3,11 @@ import { Tabs } from "expo-router";
 import { Platform } from "react-native";
 
 import { Colors } from "../../constants/colors";
+import { useHomePressStore } from "../../stores/useHomePressStore";
 
 export default function TabsLayout() {
+  const triggerHomePress = useHomePressStore((s) => s.triggerHomePress);
+
   return (
     <Tabs
       initialRouteName="index"
@@ -50,6 +53,12 @@ export default function TabsLayout() {
               color={color}
             />
           ),
+        }}
+        listeners={{
+          tabPress: () => {
+            // Sinaliza ao HomeScreen para voltar ao topo e resetar para hoje
+            triggerHomePress();
+          },
         }}
       />
       <Tabs.Screen

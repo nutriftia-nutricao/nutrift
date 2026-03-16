@@ -33,8 +33,8 @@ const MEALS_BY_COUNT: Record<number, OnboardingMealEntry[]> = {
   ],
   4: [
     { type: "breakfast", label: "Café da manhã", emoji: "☕", default_time: "07:00" },
+    { type: "morning_snack", label: "Lanche da manhã", emoji: "🍎", default_time: "10:00" },
     { type: "lunch", label: "Almoço", emoji: "🍽️", default_time: "13:00" },
-    { type: "afternoon_snack", label: "Lanche da tarde", emoji: "🥤", default_time: "16:00" },
     { type: "dinner", label: "Jantar", emoji: "🌙", default_time: "20:00" },
   ],
   5: [

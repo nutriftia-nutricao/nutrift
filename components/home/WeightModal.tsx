@@ -335,7 +335,7 @@ export function WeightModal({
               {goal === "ganhar_massa" && diffKg < 0 && (
                 <>Você ganhou <Text style={styles.diffHighlight}>{Math.abs(diffKg).toFixed(1).replace(".", ",")} kg</Text> desde o último registro.</>
               )}
-              {goal === "manter" && diffKg !== 0 && (
+              {(goal === "definir_corpo" || goal === "recomposicao") && diffKg !== 0 && (
                 <>Variação de <Text style={styles.diffHighlight}>{diffKg > 0 ? "-" : "+"}{Math.abs(diffKg).toFixed(1).replace(".", ",")} kg</Text> desde o último registro.</>
               )}
             </Text>

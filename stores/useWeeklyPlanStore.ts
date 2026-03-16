@@ -55,6 +55,8 @@ interface WeeklyPlanState {
   loadWeeklyPlan: (userId: string, weekStartISO: string) => Promise<void>;
   toggleFoodCheck: (date: string, mealType: MealType, foodId: string) => Promise<void>;
   replaceFood: (date: string, mealType: MealType, foodId: string, newFood: Omit<PlannedFood, "checked">) => void;
+  updateFood: (date: string, mealType: MealType, foodId: string, patch: Partial<PlannedFood>) => void;
+  removeFood: (date: string, mealType: MealType, foodId: string) => void;
   getPlansForDate: (date: string) => PlannedMeal[];
   isMealComplete: (date: string, mealType: MealType) => boolean;
 }
@@ -105,7 +107,8 @@ export const useWeeklyPlanStore = create<WeeklyPlanState>((set, get) => ({
         )
         .eq("user_id", userId)
         .eq("week_start", weekStartISO)
-        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (error) {
@@ -207,7 +210,31 @@ export const useWeeklyPlanStore = create<WeeklyPlanState>((set, get) => ({
         return plan;
       }),
     })),
-  
+
+  updateFood: (date, mealType, foodId, patch) =>
+    set((state) => ({
+      plans: state.plans.map((plan) => {
+        if (plan.date !== date || plan.type !== mealType) return plan;
+        return {
+          ...plan,
+          foods: plan.foods.map((food) =>
+            food.id === foodId ? { ...food, ...patch } : food
+          ),
+        };
+      }),
+    })),
+
+  removeFood: (date, mealType, foodId) =>
+    set((state) => ({
+      plans: state.plans.map((plan) => {
+        if (plan.date !== date || plan.type !== mealType) return plan;
+        return {
+          ...plan,
+          foods: plan.foods.filter((food) => food.id !== foodId),
+        };
+      }),
+    })),
+
   getPlansForDate: (date) => {
     return get().plans.filter((p) => p.date === date);
   },
@@ -255,7 +282,7 @@ function mapWeeklyPlanRowToPlannedMeals(row: WeeklyPlanRow): PlannedMeal[] {
     result.push({
       type: meal.meal_type,
       date,
-      time: meal.scheduled_time ?? "",
+      time: (meal.scheduled_time ?? "").slice(0, 5),
       kcalRange: `${totalKcal} kcal`,
       foods,
     });

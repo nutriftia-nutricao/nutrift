@@ -14,7 +14,6 @@ import { useOnboardingStore } from "../../../stores/useOnboardingStore";
 
 export default function OnboardingStep4Screen() {
   const {
-    goal,
     weight_kg,
     target_weight,
     setTargetWeight,
@@ -24,39 +23,30 @@ export default function OnboardingStep4Screen() {
     setBodyFatPct,
   } = useOnboardingStore();
 
-  const isManter = goal === "manter" || goal === "so_acompanhar";
-
-  // --- Weight: range simétrico centrado no peso atual ---
-  const weightSpread = 15; // ± 15 kg ao redor do atual
-  const minWeight = Math.max(30, Number((weight_kg - weightSpread).toFixed(1)));
-  const maxWeight = Number((weight_kg + weightSpread).toFixed(1));
+  // --- Weight: range fixo amplo igual ao step-2 (garante densidade visual idêntica na régua) ---
+  const minWeight = 30;
+  const maxWeight = 180;
 
   useEffect(() => {
     if (target_weight < minWeight) setTargetWeight(minWeight);
     if (target_weight > maxWeight) setTargetWeight(maxWeight);
-  }, [minWeight, maxWeight]);
+  }, []);
 
-  // --- Body Fat: range simétrico centrado na gordura atual ---
-  // Fallback: se gordura atual não veio da tela 2, preenche com o mesmo default da tela 2 para exibir ATUAL corretamente
+  // --- Body Fat: range fixo amplo igual ao step-2 ---
+  // Fallback: se gordura atual não veio da tela 2, preenche com o mesmo default
   useEffect(() => {
     if (body_fat_pct === null) setBodyFatPct(18);
   }, []);
 
   const showFatSlider = body_fat_pct !== null && body_fat_pct > 0;
-  const fatSpread = 10; // ± 10% ao redor do atual
-  const minFat = showFatSlider ? Math.max(3, Number((body_fat_pct! - fatSpread).toFixed(1))) : 3;
-  const maxFat = showFatSlider ? Math.min(60, Number((body_fat_pct! + fatSpread).toFixed(1))) : 60;
+  const minFat = 3;
+  const maxFat = 60;
 
   useEffect(() => {
-    if (showFatSlider) {
-      if (target_body_fat_pct === null) {
-        setTargetBodyFatPct(body_fat_pct!);
-      } else {
-        if (target_body_fat_pct < minFat) setTargetBodyFatPct(minFat);
-        if (target_body_fat_pct > maxFat) setTargetBodyFatPct(maxFat);
-      }
+    if (showFatSlider && target_body_fat_pct === null) {
+      setTargetBodyFatPct(body_fat_pct!);
     }
-  }, [showFatSlider, body_fat_pct, target_body_fat_pct, minFat, maxFat]);
+  }, [showFatSlider, body_fat_pct]);
 
   const handleContinue = () => {
     router.push("/(auth)/onboarding/step-5");
@@ -69,11 +59,7 @@ export default function OnboardingStep4Screen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.titleBlock}>
           <Text style={styles.title}>Defina suas metas</Text>
-          <Text style={styles.subtitle}>
-            {isManter
-              ? "Ajuste se desejar, ou mantenha os valores atuais."
-              : "Onde você quer chegar?"}
-          </Text>
+          <Text style={styles.subtitle}>Onde você quer chegar?</Text>
         </View>
 
         <View style={styles.metricCard}>
@@ -82,11 +68,11 @@ export default function OnboardingStep4Screen() {
             value={target_weight}
             min={minWeight}
             max={maxWeight}
-            step={0.5}
+            step={0.1}
             unit="KG"
             majorStep={10}
             mediumStep={5}
-            formatValue={(v) => v.toFixed(1)}
+            decimalPlaces={1}
             onChange={setTargetWeight}
           />
         </View>
@@ -95,13 +81,13 @@ export default function OnboardingStep4Screen() {
           <BodyMetricPicker
             label="GORDURA META"
             value={target_body_fat_pct ?? body_fat_pct ?? 20}
-            min={showFatSlider ? minFat : 5}
-            max={showFatSlider ? maxFat : 50}
+            min={0}
+            max={100}
             step={0.5}
             unit="%"
-            majorStep={5}
-            mediumStep={2.5}
-            formatValue={(v) => v.toFixed(1)}
+            majorStep={10}
+            mediumStep={5}
+            decimalPlaces={1}
             onChange={(v) => setTargetBodyFatPct(v)}
           />
         </View>
@@ -111,8 +97,10 @@ export default function OnboardingStep4Screen() {
           <View style={styles.infoColumns}>
             <View style={styles.infoCol}>
               <Text style={styles.infoColLabel}>ATUAL</Text>
-              <Text style={styles.infoColValue}>{weight_kg.toFixed(1)}</Text>
-              <Text style={styles.infoColUnit}>kg</Text>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoColValue}>{weight_kg.toFixed(1)}</Text>
+                <Text style={styles.infoColUnit}>kg</Text>
+              </View>
             </View>
 
             <View style={styles.infoDivider} />
@@ -133,8 +121,10 @@ export default function OnboardingStep4Screen() {
 
             <View style={styles.infoCol}>
               <Text style={styles.infoColLabel}>META</Text>
-              <Text style={styles.infoColValueHighlight}>{target_weight.toFixed(1)}</Text>
-              <Text style={styles.infoColUnit}>kg</Text>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoColValueHighlight}>{target_weight.toFixed(1)}</Text>
+                <Text style={styles.infoColUnit}>kg</Text>
+              </View>
             </View>
           </View>
 
@@ -143,10 +133,12 @@ export default function OnboardingStep4Screen() {
           <View style={styles.infoColumns}>
             <View style={styles.infoCol}>
               <Text style={styles.infoColLabel}>ATUAL</Text>
-              <Text style={styles.infoColValue}>
-                {showFatSlider && body_fat_pct != null ? body_fat_pct.toFixed(1) : "—"}
-              </Text>
-              <Text style={styles.infoColUnit}>%</Text>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoColValue}>
+                  {showFatSlider && body_fat_pct != null ? body_fat_pct.toFixed(1) : "—"}
+                </Text>
+                <Text style={styles.infoColUnit}>%</Text>
+              </View>
             </View>
 
             <View style={styles.infoDivider} />
@@ -173,10 +165,12 @@ export default function OnboardingStep4Screen() {
 
             <View style={styles.infoCol}>
               <Text style={styles.infoColLabel}>META</Text>
-              <Text style={styles.infoColValueHighlight}>
-                {(target_body_fat_pct ?? body_fat_pct ?? 20).toFixed(1)}
-              </Text>
-              <Text style={styles.infoColUnit}>%</Text>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoColValueHighlight}>
+                  {(target_body_fat_pct ?? body_fat_pct ?? 20).toFixed(1)}
+                </Text>
+                <Text style={styles.infoColUnit}>%</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -234,6 +228,11 @@ const styles = StyleSheet.create({
   infoCol: {
     flex: 1,
     alignItems: "center",
+    gap: 2,
+  },
+  infoValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 2,
   },
   infoColCenter: {

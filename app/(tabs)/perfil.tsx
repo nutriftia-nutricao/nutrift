@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   Alert,
   ActivityIndicator,
+  Image,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -28,13 +30,15 @@ import { useUserStore } from "../../stores/useUserStore";
 const GOAL_LABELS: Record<string, string> = {
   perder_gordura: "Perder gordura",
   ganhar_massa: "Ganhar massa",
-  manter: "Manter peso",
+  definir_corpo: "Definir o corpo",
+  recomposicao: "Recompôr o corpo",
 };
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
   pro: "Pro",
   ultra: "Ultra",
+  trial: "Pro (Trial)",
 };
 
 const DIET_LABELS: Record<string, string> = {
@@ -98,10 +102,18 @@ export default function PerfilScreen() {
   const isUserLoading = useUserStore((s) => s.isLoading);
   const setUserLoading = useUserStore((s) => s.setLoading);
   const streakFromStore = useNutritionStore((s) => s.streak);
+  const [showIntegracoesModal, setShowIntegracoesModal] = useState(false);
 
   const dietLabel = DIET_LABELS[user?.diet_type ?? ""] ?? "Não definida";
   // TODO: buscar streak real do banco se necessário
   const streakDays = streakFromStore ?? 0;
+
+  const trialDaysLeft = (() => {
+    if (user?.plan !== "trial") return null;
+    if (!user?.trial_ends_at) return 7;
+    const diff = new Date(user.trial_ends_at).getTime() - Date.now();
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  })();
 
   useFocusEffect(
     useCallback(() => {
@@ -139,6 +151,27 @@ export default function PerfilScreen() {
   const planLabel = PLAN_LABELS[user?.plan ?? "free"] ?? "Free";
   const planColor =
     user?.plan === "ultra" ? C.greenDark : user?.plan === "pro" ? C.carbo : C.textSecondary;
+  const bodyFatCurrent =
+    typeof user?.body_fat_pct === "number"
+      ? Number(user.body_fat_pct).toLocaleString("pt-BR", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        })
+      : null;
+  const bodyFatTarget =
+    typeof user?.target_body_fat_pct === "number"
+      ? Number(user.target_body_fat_pct).toLocaleString("pt-BR", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        })
+      : null;
+  const bodyMetricsSubtitle = `${user?.weight_kg ?? "—"}kg • ${user?.height_cm ?? "—"}cm${
+    bodyFatCurrent
+      ? bodyFatTarget
+        ? ` • GC ${bodyFatCurrent}% → ${bodyFatTarget}%`
+        : ` • GC ${bodyFatCurrent}%`
+      : ""
+  }`;
 
   const handleSignOut = () => {
     Alert.alert("Sair da conta", "Tem certeza que deseja sair?", [
@@ -183,9 +216,16 @@ export default function PerfilScreen() {
       >
         {/* Card do usuário */}
         <View style={[styles.userCard, { backgroundColor: C.greenLight }]}>
-          <View style={[styles.avatar, { backgroundColor: C.greenDark }]}>
-            <Text style={styles.avatarText}>{initials}</Text>
-          </View>
+          <Pressable
+            style={[styles.avatar, { backgroundColor: C.greenDark }]}
+            onPress={() => router.push("/perfil/dados-corporais")}
+          >
+            {user?.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{initials}</Text>
+            )}
+          </Pressable>
           <View style={styles.userInfo}>
             <Text style={[styles.userName, { color: C.text }]}>{user?.name ?? "Usuário"}</Text>
             <Pressable onPress={() => router.push("/perfil/dados-corporais")}>
@@ -197,10 +237,17 @@ export default function PerfilScreen() {
               <Ionicons name="star" size={11} color={planColor} />
               <Text style={[styles.planBadgeText, { color: planColor }]}>{planLabel}</Text>
             </View>
-            <View style={[styles.streakBadge, { backgroundColor: isDark ? "#2D2010" : "#FFF3E0" }]}>
-              <Ionicons name="flame" size={11} color={C.carbo} />
-              <Text style={[styles.streakBadgeText, { color: C.carbo }]}>{streakDays}D</Text>
-            </View>
+            {trialDaysLeft !== null ? (
+              <View style={[styles.streakBadge, { backgroundColor: isDark ? "#1A1A2E" : "#E8E8FF" }]}>
+                <Ionicons name="time-outline" size={11} color="#7B68EE" />
+                <Text style={[styles.streakBadgeText, { color: "#7B68EE" }]}>{trialDaysLeft}D</Text>
+              </View>
+            ) : (
+              <View style={[styles.streakBadge, { backgroundColor: isDark ? "#2D2010" : "#FFF3E0" }]}>
+                <Ionicons name="flame" size={11} color={C.carbo} />
+                <Text style={[styles.streakBadgeText, { color: C.carbo }]}>{streakDays}D</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -209,15 +256,15 @@ export default function PerfilScreen() {
         <View style={[styles.menuCard, { backgroundColor: C.surface, borderColor: C.border }]}>
           <MenuItem C={C} icon="trophy-outline" label="Meu objetivo" subtitle={goalSubtitle} onPress={() => router.push("/perfil/meu-objetivo")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
-          <MenuItem C={C} icon="person-outline" label="Dados corporais" subtitle={`${user?.weight_kg ?? "—"}kg • ${user?.height_cm ?? "—"}cm`} onPress={() => router.push("/perfil/dados-corporais")} />
+          <MenuItem C={C} icon="person-outline" label="Dados corporais" subtitle={bodyMetricsSubtitle} onPress={() => router.push("/perfil/dados-corporais")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
           <MenuItem C={C} icon="restaurant-outline" label="Dieta e preferências" subtitle={dietLabel} onPress={() => router.push("/perfil/dieta-preferencias")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
           <MenuItem C={C} icon="calendar-outline" label="Ver plano da semana" badge="Disponível" badgeColor={C.greenDark} onPress={() => router.push("/plano-semanal")} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
-          <MenuItem C={C} icon="share-social-outline" label="Integrações" onPress={() => router.push("/perfil/integracoes")} />
+          <MenuItem C={C} icon="share-social-outline" label="Integrações" onPress={() => setShowIntegracoesModal(true)} />
           <View style={[styles.divider, { backgroundColor: C.border }]} />
-          <MenuItem C={C} icon="barbell-outline" label="Treino" onPress={() => router.push("/perfil/treino")} />
+          <MenuItem C={C} icon="barbell-outline" label="Atividades" onPress={() => router.push("/perfil/treino")} />
         </View>
 
         {/* Seção: Configurações */}
@@ -266,6 +313,33 @@ export default function PerfilScreen() {
           <Text style={[styles.signOutText, { color: C.error }]}>Sair da conta</Text>
         </Pressable>
       </ScrollView>
+
+      {/* Modal: Integrações em desenvolvimento */}
+      <Modal
+        visible={showIntegracoesModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowIntegracoesModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowIntegracoesModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: C.surface, borderColor: C.border }]} onPress={() => {}}>
+            <View style={[styles.modalIconWrap, { backgroundColor: isDark ? "#1A1A2E" : "#E8E8FF" }]}>
+              <Ionicons name="construct-outline" size={32} color="#7B68EE" />
+            </View>
+            <Text style={[styles.modalTitle, { color: C.text }]}>Em desenvolvimento</Text>
+            <Text style={[styles.modalSubtitle, { color: C.textSecondary }]}>
+              As integrações estarão disponíveis no{"\n"}
+              <Text style={{ color: C.greenDark, fontWeight: "700" }}>Modo Ultra</Text>
+            </Text>
+            <Pressable
+              style={[styles.modalBtn, { backgroundColor: C.greenDark }]}
+              onPress={() => setShowIntegracoesModal(false)}
+            >
+              <Text style={styles.modalBtnText}>Entendido</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -295,6 +369,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: { ...Typography.h4, color: "#FFF", fontSize: 16 },
+  avatarImage: { width: 48, height: 48, borderRadius: 24 },
   userInfo: { flex: 1 },
   userName: { ...Typography.h4 },
   userSub: { ...Typography.caption, marginTop: 2 },
@@ -364,4 +439,36 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   signOutText: { ...Typography.body, fontWeight: "600" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: Spacing.xl,
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  modalIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.xs,
+  },
+  modalTitle: { ...Typography.h3, textAlign: "center" },
+  modalSubtitle: { ...Typography.body, textAlign: "center", lineHeight: 22 },
+  modalBtn: {
+    marginTop: Spacing.sm,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+  },
+  modalBtnText: { ...Typography.body, fontWeight: "700", color: "#FFF" },
 });

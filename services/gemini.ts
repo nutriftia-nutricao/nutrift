@@ -5,7 +5,7 @@ const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_KEY ?? "";
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
 export const geminiModel = genAI.getGenerativeModel({
-  model: "gemini-flash-latest",
+  model: "gemini-2.0-flash",
 });
 
 /**
@@ -13,7 +13,7 @@ export const geminiModel = genAI.getGenerativeModel({
  * Recebe o base64 do arquivo e o mimeType (ex: "audio/m4a").
  */
 export async function transcribeAudio(base64Audio: string, mimeType: string): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   const result = await model.generateContent([
     {
       inlineData: {
@@ -36,7 +36,7 @@ export async function sendChatMessage(params: {
   userMessage: string;
 }): Promise<string> {
   const model = genAI.getGenerativeModel({
-    model: "gemini-flash-latest",
+    model: "gemini-2.0-flash",
     systemInstruction: params.systemPrompt,
   });
 
@@ -139,7 +139,7 @@ export async function getSimilarFoodSuggestions(
     const result = await geminiModel.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: useFastSingle
-        ? { maxOutputTokens: 280, temperature: 0.2 }
+        ? { maxOutputTokens: 400, temperature: 0.3 }
         : undefined,
     });
     const response = result.response;
@@ -161,7 +161,8 @@ export async function getSimilarFoodSuggestions(
       .filter((s): s is FoodSuggestion => s != null && typeof s?.name === "string")
       .map((s) => normalizeSuggestion(s, originalFood));
     return suggestions.length > 0 ? suggestions : getMockSuggestions(originalFood, mealType);
-  } catch {
+  } catch (err) {
+    console.warn("[getSimilarFoodSuggestions] erro:", err);
     return getMockSuggestions(originalFood, mealType);
   }
 }
@@ -224,7 +225,7 @@ Sugira 3 substitutos TACO, macros próximas (±20%). Resposta APENAS array JSON:
 }
 
 /**
- * Sugestões mock para testes quando a API falha.
+ * Fallback local quando a API falha. Sugere 1 alimento real da mesma categoria.
  */
 function getMockSuggestions(
   originalFood: {
@@ -237,71 +238,58 @@ function getMockSuggestions(
   },
   mealType: string
 ): FoodSuggestion[] {
-  // Sugestões genéricas baseadas no perfil nutricional
-  const isHighProtein = originalFood.protein_g > 10;
-  const isLowCarb = originalFood.carbo_g < 5;
-  const isHighFat = originalFood.fat_g > 10;
+  const isHighProtein = originalFood.protein_g >= 10;
+  const isHighCarb = originalFood.carbo_g >= 15;
+  const isHighFat = originalFood.fat_g >= 8;
+  const isCafe = mealType === "cafe" || mealType === "lanche_manha";
 
-  if (isHighProtein && isLowCarb) {
-    return [
-      {
-        name: "Omelete simples",
-        quantity_g: Math.round(originalFood.quantity_g * 0.95),
-        kcal: Math.round(originalFood.kcal * 1.05),
-        protein_g: Math.round(originalFood.protein_g * 1.1),
-        carbo_g: Math.round(originalFood.carbo_g * 1.2),
-        fat_g: Math.round(originalFood.fat_g * 0.95),
-        reason: "Alta proteína, baixo carboidrato, ideal para a refeição",
-      },
-      {
-        name: "Queijo cottage",
-        quantity_g: Math.round(originalFood.quantity_g * 1.3),
-        kcal: Math.round(originalFood.kcal * 0.98),
-        protein_g: Math.round(originalFood.protein_g * 1.15),
-        carbo_g: Math.round(originalFood.carbo_g * 2),
-        fat_g: Math.round(originalFood.fat_g * 0.7),
-        reason: "Fonte proteica magra, fácil preparo",
-      },
-      {
-        name: "Peito de frango desfiado",
-        quantity_g: Math.round(originalFood.quantity_g * 0.8),
-        kcal: Math.round(originalFood.kcal * 1.02),
-        protein_g: Math.round(originalFood.protein_g * 1.3),
-        carbo_g: 0,
-        fat_g: Math.round(originalFood.fat_g * 0.4),
-        reason: "Proteína magra, versátil",
-      },
+  // Proteína dominante
+  if (isHighProtein && !isHighCarb) {
+    const opts: FoodSuggestion[] = [
+      { name: "Ovo cozido", quantity_g: 100, kcal: 147, protein_g: 13, carbo_g: 1, fat_g: 10, reason: "Proteína completa, fácil preparo" },
+      { name: "Peito de frango grelhado", quantity_g: 100, kcal: 159, protein_g: 32, carbo_g: 0, fat_g: 3, reason: "Proteína magra, baixo teor de gordura" },
+      { name: "Atum em água escorrido", quantity_g: 80, kcal: 90, protein_g: 20, carbo_g: 0, fat_g: 1, reason: "Proteína concentrada, praticidade" },
+      { name: "Iogurte grego natural", quantity_g: 150, kcal: 133, protein_g: 17, carbo_g: 6, fat_g: 4, reason: "Proteína com probióticos" },
     ];
+    return [opts[Math.floor(Math.random() * opts.length)]];
   }
 
-  // Fallback genérico
-  return [
-    {
-      name: "Alternativa 1",
-      quantity_g: originalFood.quantity_g,
-      kcal: Math.round(originalFood.kcal * 1.05),
-      protein_g: originalFood.protein_g,
-      carbo_g: originalFood.carbo_g,
-      fat_g: originalFood.fat_g,
-      reason: "Valores nutricionais similares",
-    },
-    {
-      name: "Alternativa 2",
-      quantity_g: Math.round(originalFood.quantity_g * 1.1),
-      kcal: Math.round(originalFood.kcal * 0.95),
-      protein_g: Math.round(originalFood.protein_g * 1.1),
-      carbo_g: Math.round(originalFood.carbo_g * 0.9),
-      fat_g: originalFood.fat_g,
-      reason: "Opção com perfil nutricional próximo",
-    },
-    {
-      name: "Alternativa 3",
-      quantity_g: Math.round(originalFood.quantity_g * 0.9),
-      kcal: originalFood.kcal,
-      protein_g: originalFood.protein_g,
-      carbo_g: Math.round(originalFood.carbo_g * 1.1),
-      fat_g: Math.round(originalFood.fat_g * 0.9),
-      reason: "Mantém equilíbrio de macros",
-    },
+  // Carboidrato dominante
+  if (isHighCarb && !isHighProtein) {
+    const opts: FoodSuggestion[] = [
+      { name: "Aveia em flocos", quantity_g: 50, kcal: 181, protein_g: 7, carbo_g: 30, fat_g: 3, reason: "Carboidrato complexo, rico em fibras" },
+      { name: "Pão integral", quantity_g: 50, kcal: 121, protein_g: 5, carbo_g: 22, fat_g: 2, reason: "Carboidrato de absorção moderada" },
+      { name: "Batata-doce cozida", quantity_g: 150, kcal: 135, protein_g: 2, carbo_g: 31, fat_g: 0, reason: "Carboidrato de baixo índice glicêmico" },
+      { name: "Banana", quantity_g: 100, kcal: 98, protein_g: 1, carbo_g: 23, fat_g: 0, reason: "Energia rápida, rico em potássio" },
+    ];
+    return [opts[Math.floor(Math.random() * opts.length)]];
+  }
+
+  // Gordura dominante
+  if (isHighFat && !isHighCarb) {
+    const opts: FoodSuggestion[] = [
+      { name: "Abacate", quantity_g: 80, kcal: 128, protein_g: 1, carbo_g: 3, fat_g: 12, reason: "Gordura monoinsaturada, anti-inflamatório" },
+      { name: "Castanha-do-pará", quantity_g: 20, kcal: 132, protein_g: 3, carbo_g: 1, fat_g: 13, reason: "Gordura boa, rico em selênio" },
+      { name: "Azeite de oliva extravirgem", quantity_g: 10, kcal: 90, protein_g: 0, carbo_g: 0, fat_g: 10, reason: "Gordura saudável, sabor suave" },
+    ];
+    return [opts[Math.floor(Math.random() * opts.length)]];
+  }
+
+  // Café da manhã / lanche — sugestões contextuais
+  if (isCafe) {
+    const opts: FoodSuggestion[] = [
+      { name: "Tapioca com queijo", quantity_g: 80, kcal: 180, protein_g: 8, carbo_g: 28, fat_g: 4, reason: "Clássico do café brasileiro, versátil" },
+      { name: "Vitamina de banana com aveia", quantity_g: 250, kcal: 200, protein_g: 6, carbo_g: 38, fat_g: 3, reason: "Nutritivo e prático para o café" },
+      { name: "Iogurte com granola", quantity_g: 180, kcal: 210, protein_g: 8, carbo_g: 32, fat_g: 5, reason: "Equilíbrio de macro e probióticos" },
+    ];
+    return [opts[Math.floor(Math.random() * opts.length)]];
+  }
+
+  // Misto — substituto equilibrado
+  const opts: FoodSuggestion[] = [
+    { name: "Ovo mexido", quantity_g: 100, kcal: 155, protein_g: 11, carbo_g: 1, fat_g: 12, reason: "Equilibrado em proteína e gordura" },
+    { name: "Frango com arroz integral", quantity_g: 200, kcal: 290, protein_g: 25, carbo_g: 28, fat_g: 5, reason: "Refeição completa e balanceada" },
+    { name: "Atum com batata-doce", quantity_g: 200, kcal: 220, protein_g: 22, carbo_g: 25, fat_g: 2, reason: "Proteína + carboidrato complexo" },
   ];
+  return [opts[Math.floor(Math.random() * opts.length)]];
 }

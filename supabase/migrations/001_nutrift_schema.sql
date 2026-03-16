@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   workout_type text CHECK (workout_type IN ('nao_pratico', 'casa', 'academia')),
   workout_time text,
   target_weight numeric NOT NULL DEFAULT 75,
+  target_body_fat_pct numeric,
   weekly_pace numeric NOT NULL DEFAULT 0.5,
   diet_type text CHECK (diet_type IN ('onivoro', 'vegetariano', 'vegano', 'low_carb')),
   restrictions text[] DEFAULT '{}',
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   hydration_ml integer NOT NULL DEFAULT 2500,
   target_date date NOT NULL DEFAULT '2026-12-31',
   meals_per_day integer DEFAULT 4,
+  meals jsonb DEFAULT '[]'::jsonb,
   liked_foods text[] DEFAULT '{}',
   onboarding_completed boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()

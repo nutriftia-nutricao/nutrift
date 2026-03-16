@@ -15,6 +15,8 @@ import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
 
+// ─── Tipos públicos ────────────────────────────────────────────────────────────
+
 export type BodyMetricPickerProps = {
   label: string;
   value: number;
@@ -25,12 +27,66 @@ export type BodyMetricPickerProps = {
   onChange: (value: number) => void;
   majorStep?: number;
   mediumStep?: number;
-  /** Quando definido, a régua mostra marcos apenas a cada displayStep (ex: 5 kg); o valor continua alterando pelo step (ex: 0.1). */
-  displayStep?: number;
+  decimalPlaces?: number;
   formatValue?: (value: number) => string;
 };
 
-interface RulerPickerProps {
+// ─── Constantes visuais ────────────────────────────────────────────────────────
+
+/** Largura virtual da régua (px). Todos os cards usam o mesmo valor. */
+const RULER_VIRTUAL_WIDTH = 1200;
+
+/** Altura da área da régua (container). */
+const RULER_HEIGHT = 64;
+
+/** Área de ticks: os ticks crescem para cima a partir da baseline. */
+const TICK_BASELINE = 40; // distância do topo do container até a baseline dos ticks
+
+/** Alturas dos ticks acima da baseline */
+const TICK_H_MAJOR = 36;
+const TICK_H_MEDIUM = 22;
+const TICK_H_MINOR = 10;
+
+/** Largura de cada tick */
+const TICK_W = 2;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function roundToStep(v: number, step: number): number {
+  if (step <= 0) return v;
+  return Number((Math.round(v / step) * step).toFixed(10));
+}
+
+function isMultipleOf(v: number, step: number): boolean {
+  if (step <= 0) return false;
+  return Math.abs((v / step) - Math.round(v / step)) < 1e-3;
+}
+
+/** Gera os ticks visíveis: a cada mediumStep para não poluir */
+function buildTicks(
+  min: number,
+  max: number,
+  mediumStep: number,
+  majorStep: number
+): Array<{ value: number; isMajor: boolean; isMedium: boolean }> {
+  const ticks: Array<{ value: number; isMajor: boolean; isMedium: boolean }> = [];
+  // Garante que o passo visual seja pelo menos 1
+  const dStep = mediumStep > 0 ? mediumStep : 1;
+  for (let v = min; v <= max + 1e-6; v += dStep) {
+    const rv = Number(v.toFixed(4));
+    const isMajor = isMultipleOf(rv, majorStep);
+    ticks.push({ value: rv, isMajor, isMedium: !isMajor });
+  }
+  return ticks;
+}
+
+// ─── Componente interno: régua ─────────────────────────────────────────────────
+
+interface RulerProps {
   min: number;
   max: number;
   step: number;
@@ -38,42 +94,10 @@ interface RulerPickerProps {
   majorStep: number;
   mediumStep: number;
   onChange: (value: number) => void;
-  formatValue?: (value: number) => string;
-  onCenterChange: (value: number, isMajor: boolean) => void;
-  /** Escala visual: só desenha ticks a cada displayStep; valor ainda usa step. */
-  displayStep?: number;
+  onPreview: (value: number, isMajor: boolean) => void;
 }
 
-function createRange(min: number, max: number, step: number): number[] {
-  const values: number[] = [];
-  const safeStep = step > 0 ? step : 1;
-  for (let current = min; current <= max + 1e-6; current += safeStep) {
-    values.push(Number(current.toFixed(4)));
-  }
-  return values;
-}
-
-function isMultipleOf(value: number, step: number): boolean {
-  if (step <= 0) return false;
-  const quotient = value / step;
-  const diff = Math.abs(quotient - Math.round(quotient));
-  return diff < 1e-3;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-const ITEM_WIDTH = 10;
-const CONTINUOUS_CONTENT_WIDTH = 1000; // largura virtual da régua no modo displayStep
-
-function roundToStep(value: number, step: number): number {
-  if (step <= 0) return value;
-  const rounded = Math.round(value / step) * step;
-  return Number(rounded.toFixed(4));
-}
-
-function RulerPicker({
+function Ruler({
   min,
   max,
   step,
@@ -81,292 +105,225 @@ function RulerPicker({
   majorStep,
   mediumStep,
   onChange,
-  formatValue,
-  onCenterChange,
-  displayStep,
-}: RulerPickerProps) {
+  onPreview,
+}: RulerProps) {
   const scrollRef = React.useRef<ScrollView | null>(null);
   const [containerWidth, setContainerWidth] = React.useState(0);
-  const isProgrammaticSnapRef = React.useRef(false);
-  const releaseProgrammaticSnapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialScrollSyncedRef = React.useRef(false);
-  const scrollXRef = React.useRef(0);
 
-  const useContinuous = displayStep != null && displayStep > 0;
+  // Controle de snap programático (evita loop)
+  const isProgrammaticRef = React.useRef(false);
+  const programmaticTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const values = React.useMemo(
-    () => createRange(min, max, step),
-    [min, max, step]
-  );
+  // Última posição X conhecida (evita scrollTo desnecessário)
+  const scrollXRef = React.useRef(-1);
 
-  const displayValues = React.useMemo(
-    () => (useContinuous ? createRange(min, max, displayStep!) : values),
-    [useContinuous, min, max, useContinuous ? displayStep! : step, values]
-  );
-
-  const safeStep = React.useMemo(
-    () => (step > 0 ? step : 1),
-    [step]
-  );
+  // Flag para ignorar o primeiro scroll (posição 0 antes de sincronizar)
+  const initializedRef = React.useRef(false);
 
   const range = max - min;
 
-  const selectedIndex = React.useMemo(() => {
-    const clampedValue = clamp(value, min, max);
-    const rawIndex = Math.round((clampedValue - min) / safeStep);
-    return Math.max(0, Math.min(values.length - 1, rawIndex));
-  }, [value, min, max, safeStep, values.length]);
+  // Padding lateral = metade da largura do container → o ponto 0 fica centrado
+  const sidePadding = containerWidth > 0 ? containerWidth / 2 : 0;
 
-  const sidePadding = React.useMemo(
-    () =>
-      useContinuous && containerWidth > 0
-        ? containerWidth / 2
-        : containerWidth > 0
-          ? (containerWidth - ITEM_WIDTH) / 2
-          : 0,
-    [containerWidth, useContinuous]
+  // Máximo scroll X possível
+  const maxScrollX = Math.max(0, RULER_VIRTUAL_WIDTH + 2 * sidePadding - (containerWidth || 0));
+
+  // Converte valor → posição X do scroll (posição onde o centro da tela aponta para esse valor)
+  const valueToX = React.useCallback(
+    (v: number): number => {
+      if (range <= 0 || sidePadding <= 0) return 0;
+      return clamp(((v - min) / range) * RULER_VIRTUAL_WIDTH, 0, maxScrollX);
+    },
+    [min, range, sidePadding, maxScrollX]
   );
 
-  const handleLayout = (event: LayoutChangeEvent) => {
-    setContainerWidth(event.nativeEvent.layout.width);
+  // Converte posição X do scroll → valor
+  const xToValue = React.useCallback(
+    (offsetX: number): number => {
+      if (range <= 0 || sidePadding <= 0) return min;
+      // O centro da tela está em offsetX + containerWidth/2
+      // Mas como usamos sidePadding = containerWidth/2, o conteúdo começa deslocado
+      // O "ponto central do conteúdo" é offsetX (scroll 0 → valor min; scroll max → valor max)
+      const raw = min + (offsetX / RULER_VIRTUAL_WIDTH) * range;
+      return clamp(roundToStep(raw, step), min, max);
+    },
+    [min, max, range, step, sidePadding]
+  );
+
+  // Ticks pré-calculados (estáticos)
+  const ticks = React.useMemo(
+    () => buildTicks(min, max, mediumStep, majorStep),
+    [min, max, mediumStep, majorStep]
+  );
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    setContainerWidth(e.nativeEvent.layout.width);
   };
 
-  const maxScrollXContinuous = React.useMemo(
-    () => Math.max(0, CONTINUOUS_CONTENT_WIDTH + 2 * sidePadding - (containerWidth || 0)),
-    [sidePadding, containerWidth]
-  );
-
+  // Sincroniza scroll quando o valor externo muda (ex: ao entrar na tela)
   React.useEffect(() => {
-    if (useContinuous && containerWidth > 0) {
-      if (range <= 0) return;
-      const targetX = ((clamp(value, min, max) - min) / range) * CONTINUOUS_CONTENT_WIDTH;
-      const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
-      if (scrollRef.current && Math.abs(clampedX - scrollXRef.current) > 0.5) {
-        scrollRef.current.scrollTo({ x: clampedX, animated: false });
-        scrollXRef.current = clampedX;
-        initialScrollSyncedRef.current = true;
-      }
-    } else if (!useContinuous && scrollRef.current && values.length > 0) {
-      const targetX = selectedIndex * ITEM_WIDTH;
-      if (Math.abs(targetX - scrollXRef.current) > 0.5) {
-        scrollRef.current.scrollTo({ x: targetX, animated: false });
-        scrollXRef.current = targetX;
-        initialScrollSyncedRef.current = true;
-      }
+    if (containerWidth <= 0) return;
+    const targetX = valueToX(value);
+    if (Math.abs(targetX - scrollXRef.current) > 0.5) {
+      scrollRef.current?.scrollTo({ x: targetX, animated: false });
+      scrollXRef.current = targetX;
+      initializedRef.current = true;
     }
-  }, [useContinuous, value, min, max, range, containerWidth, selectedIndex, values.length, maxScrollXContinuous]);
+  }, [value, containerWidth, valueToX]);
 
-  const commitValueFromOffset = React.useCallback(
-    (offsetX: number, alignVisualForContinuous: boolean) => {
-      if (useContinuous) {
-        if (range <= 0) return;
-        const centerPos = offsetX + (containerWidth > 0 ? containerWidth / 2 - sidePadding : 0);
-        const rawValue = min + (centerPos / CONTINUOUS_CONTENT_WIDTH) * range;
-        const snapped = clamp(roundToStep(rawValue, step), min, max);
-        const isMajor = isMultipleOf(snapped, majorStep);
-        onCenterChange(snapped, isMajor);
-        const normalized = Number(roundToStep(snapped, step).toFixed(step < 1 ? 1 : 0));
-        if (normalized !== value) {
-          onChange(normalized);
-        }
+  // ── Handlers de scroll ───────────────────────────────────────────────────────
 
-        if (alignVisualForContinuous && scrollRef.current && range > 0) {
-          const targetX = ((snapped - min) / range) * CONTINUOUS_CONTENT_WIDTH;
-          const clampedX = Math.max(0, Math.min(maxScrollXContinuous, targetX));
-          if (Math.abs(clampedX - offsetX) > 0.5) {
-            isProgrammaticSnapRef.current = true;
-            scrollRef.current.scrollTo({ x: clampedX, animated: true });
-            scrollXRef.current = clampedX;
-            if (releaseProgrammaticSnapTimerRef.current) {
-              clearTimeout(releaseProgrammaticSnapTimerRef.current);
-            }
-            releaseProgrammaticSnapTimerRef.current = setTimeout(() => {
-              isProgrammaticSnapRef.current = false;
-            }, 180);
-          }
-        }
-      } else {
-        const rawIndex = Math.round(offsetX / ITEM_WIDTH);
-        const index = Math.max(0, Math.min(values.length - 1, rawIndex));
-        const newValue = clamp(values[index], min, max);
-        const isMajor = isMultipleOf(newValue, majorStep);
-        onCenterChange(newValue, isMajor);
-        const normalized = Number(roundToStep(newValue, step).toFixed(step < 1 ? 1 : 0));
-        if (normalized !== value) {
-          onChange(normalized);
-        }
-      }
-    },
-    [
-      useContinuous,
-      containerWidth,
-      sidePadding,
-      min,
-      max,
-      range,
-      step,
-      maxScrollXContinuous,
-      value,
-      onChange,
-      majorStep,
-      onCenterChange,
-      values,
-    ]
-  );
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetX = e.nativeEvent.contentOffset.x;
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    if (useContinuous && !initialScrollSyncedRef.current && offsetX < 10 && value > min) return;
-    initialScrollSyncedRef.current = true;
+    // Ignora scroll=0 antes de inicializar (evita preview espúrio no valor min)
+    if (!initializedRef.current && offsetX < 1 && value > min + step) return;
+    initializedRef.current = true;
+
     scrollXRef.current = offsetX;
 
-    if (isProgrammaticSnapRef.current) return;
+    if (isProgrammaticRef.current) return;
 
-    if (useContinuous && range > 0) {
-      const centerPos = offsetX + (containerWidth > 0 ? containerWidth / 2 - sidePadding : 0);
-      const rawValue = min + (centerPos / CONTINUOUS_CONTENT_WIDTH) * range;
-      const preview = clamp(roundToStep(rawValue, step), min, max);
-      onCenterChange(preview, isMultipleOf(preview, majorStep));
-    } else {
-      const rawIndex = Math.round(offsetX / ITEM_WIDTH);
-      const index = Math.max(0, Math.min(values.length - 1, rawIndex));
-      const preview = clamp(values[index], min, max);
-      onCenterChange(preview, isMultipleOf(preview, majorStep));
+    const preview = xToValue(offsetX);
+    onPreview(preview, isMultipleOf(preview, majorStep));
+  };
+
+  const commitFromOffset = React.useCallback(
+    (offsetX: number) => {
+      const snapped = xToValue(offsetX);
+      onChange(snapped);
+      onPreview(snapped, isMultipleOf(snapped, majorStep));
+
+      // Realinha visualmente para o snap exato
+      const targetX = valueToX(snapped);
+      if (Math.abs(targetX - offsetX) > 0.5) {
+        isProgrammaticRef.current = true;
+        scrollRef.current?.scrollTo({ x: targetX, animated: true });
+        scrollXRef.current = targetX;
+        if (programmaticTimerRef.current) clearTimeout(programmaticTimerRef.current);
+        programmaticTimerRef.current = setTimeout(() => {
+          isProgrammaticRef.current = false;
+        }, 200);
+      }
+    },
+    [xToValue, valueToX, onChange, onPreview, majorStep]
+  );
+
+  const handleScrollEndDrag = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const velocityX = Math.abs(e.nativeEvent.velocity?.x ?? 0);
+    // Se o utilizador soltou devagar (sem momentum), faz snap imediato
+    if (velocityX < 0.1) {
+      commitFromOffset(e.nativeEvent.contentOffset.x);
     }
   };
 
-  const handleScrollBeginDrag = () => {
-    // reservado para futuras interações do gesto
-  };
-
-  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const velocityX = Math.abs(event.nativeEvent.velocity?.x ?? 0);
-    if (velocityX < 0.05) {
-      commitValueFromOffset(event.nativeEvent.contentOffset.x, useContinuous);
-    }
-  };
-
-  const handleMomentumScrollBegin = () => {
-    // evento mantido para sincronismo de ciclo de scroll
-  };
-
-  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (isProgrammaticSnapRef.current) {
-      isProgrammaticSnapRef.current = false;
+  const handleMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isProgrammaticRef.current) {
+      isProgrammaticRef.current = false;
       return;
     }
-    commitValueFromOffset(event.nativeEvent.contentOffset.x, useContinuous);
+    commitFromOffset(e.nativeEvent.contentOffset.x);
   };
 
   React.useEffect(() => {
     return () => {
-      if (releaseProgrammaticSnapTimerRef.current) {
-        clearTimeout(releaseProgrammaticSnapTimerRef.current);
-      }
+      if (programmaticTimerRef.current) clearTimeout(programmaticTimerRef.current);
     };
   }, []);
 
-  /** Altura fixa dos ticks:
-   * - major (10 em 10): 40
-   * - medium (5 em 5): 25
-   * - minor (1 em 1): 10
-   */
-  const getUniformTickHeight = (isMajor: boolean, isMedium: boolean) =>
-    isMajor ? 40 : isMedium ? 25 : 10;
-
-  if (useContinuous) {
-    const tickPositions = displayValues.map((tickValue) => ({
-      value: tickValue,
-      x: ((tickValue - min) / range) * CONTINUOUS_CONTENT_WIDTH,
-      isMajor: isMultipleOf(tickValue, majorStep),
-      isMedium: !isMultipleOf(tickValue, majorStep) && isMultipleOf(tickValue, mediumStep),
-    }));
-    return (
-      <View style={styles.rulerContainer} onLayout={handleLayout}>
-        <View pointerEvents="none" style={styles.rulerTrack} />
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          decelerationRate="fast"
-          contentContainerStyle={{
-            paddingHorizontal: sidePadding,
-            width: CONTINUOUS_CONTENT_WIDTH + 2 * sidePadding,
-            minWidth: CONTINUOUS_CONTENT_WIDTH + 2 * sidePadding,
-          }}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onMomentumScrollBegin={handleMomentumScrollBegin}
-          onScroll={handleScroll}
-          onScrollEndDrag={handleScrollEndDrag}
-          onMomentumScrollEnd={handleMomentumScrollEnd}
-          scrollEventThrottle={16}
-        >
-          <View style={[styles.continuousRuler, { width: CONTINUOUS_CONTENT_WIDTH }]}>
-            {tickPositions.map(({ value: tickValue, x, isMajor, isMedium }) => {
-              const height = getUniformTickHeight(isMajor, isMedium);
-              return (
-                <View
-                  key={tickValue}
-                  style={[styles.continuousTickWrap, { left: x - 1.5 }]}
-                >
-                  <View style={styles.tickWrapper}>
-                    <View style={[styles.tick, { height }]} />
-                  </View>
-                  {(isMajor || isMedium) && (
-                    <Text style={styles.tickLabel}>
-                      {formatValue ? formatValue(tickValue) : tickValue}
-                    </Text>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.rulerContainer} onLayout={handleLayout}>
-      <View pointerEvents="none" style={styles.rulerTrack} />
+    <View style={rulerStyles.container} onLayout={handleLayout}>
+      {/* Faixa horizontal de fundo */}
+      <View pointerEvents="none" style={rulerStyles.baseline} />
+
       <ScrollView
         ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
-        decelerationRate="fast"
-        snapToInterval={ITEM_WIDTH}
-        snapToAlignment="center"
-        disableIntervalMomentum={false}
-        contentContainerStyle={{ paddingHorizontal: sidePadding }}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onMomentumScrollBegin={handleMomentumScrollBegin}
+        decelerationRate={Platform.OS === "ios" ? 0.992 : "normal"}
+        contentContainerStyle={{
+          paddingHorizontal: sidePadding,
+          width: RULER_VIRTUAL_WIDTH + 2 * sidePadding,
+        }}
         onScroll={handleScroll}
         onScrollEndDrag={handleScrollEndDrag}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         scrollEventThrottle={16}
       >
-        {values.map((tickValue, index) => {
-          const isMajor = isMultipleOf(tickValue, majorStep);
-          const isMedium = !isMajor && isMultipleOf(tickValue, mediumStep);
-          const height = getUniformTickHeight(isMajor, isMedium);
-
-          return (
-            <View key={`${tickValue}-${index}`} style={styles.tickItem}>
-              <View style={styles.tickWrapper}>
-                <View style={[styles.tick, { height }]} />
+        <View style={rulerStyles.tickRow}>
+          {ticks.map(({ value: tv, isMajor, isMedium }) => {
+            const x = ((tv - min) / range) * RULER_VIRTUAL_WIDTH;
+            const tickH = isMajor ? TICK_H_MAJOR : isMedium ? TICK_H_MEDIUM : TICK_H_MINOR;
+            return (
+              <View
+                key={tv}
+                style={[rulerStyles.tickWrap, { left: x - TICK_W / 2 }]}
+              >
+                {/* Tick cresce de baixo para cima */}
+                <View
+                  style={[
+                    rulerStyles.tick,
+                    {
+                      height: tickH,
+                      opacity: isMajor ? 1 : isMedium ? 0.65 : 0.35,
+                    },
+                  ]}
+                />
+                {isMajor && (
+                  <Text style={rulerStyles.tickLabel}>{Math.round(tv)}</Text>
+                )}
               </View>
-              {(isMajor || isMedium) && (
-                <Text style={styles.tickLabel}>
-                  {formatValue ? formatValue(tickValue) : tickValue}
-                </Text>
-              )}
-            </View>
-          );
-        })}
+            );
+          })}
+        </View>
       </ScrollView>
     </View>
   );
 }
+
+const rulerStyles = StyleSheet.create({
+  container: {
+    height: RULER_HEIGHT,
+    position: "relative",
+    overflow: "hidden",
+  },
+  baseline: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: TICK_BASELINE,
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  tickRow: {
+    position: "relative",
+    height: RULER_HEIGHT,
+    width: RULER_VIRTUAL_WIDTH,
+  },
+  tickWrap: {
+    position: "absolute",
+    bottom: RULER_HEIGHT - TICK_BASELINE, // alinha os ticks pela baseline
+    alignItems: "center",
+    // não define width para evitar sobreposição de labels
+  },
+  tick: {
+    width: TICK_W,
+    borderRadius: TICK_W / 2,
+    backgroundColor: Colors.border,
+  },
+  tickLabel: {
+    ...Typography.caption,
+    fontSize: 9,
+    color: Colors.textSecondary,
+    marginTop: 3,
+    opacity: 0.7,
+  },
+});
+
+// ─── Componente público: BodyMetricPicker ──────────────────────────────────────
+
+/** Altura total fixa do card — todos os cards têm exatamente este valor. */
+const CARD_HEIGHT = 160;
 
 export function BodyMetricPicker({
   label,
@@ -378,67 +335,59 @@ export function BodyMetricPicker({
   onChange,
   majorStep = 10,
   mediumStep = 5,
-  displayStep,
+  decimalPlaces,
   formatValue,
 }: BodyMetricPickerProps) {
+  // Valor local para resposta imediata ao scroll (sem esperar onChange persistir)
   const [displayValue, setDisplayValue] = React.useState(value);
   const [isMajorAtCenter, setIsMajorAtCenter] = React.useState(false);
-  const lastEmittedRef = React.useRef<number>(value);
-  const latestDisplayRef = React.useRef<number>(value);
 
+  // Mantém displayValue sincronizado quando o valor externo muda
   React.useEffect(() => {
     setDisplayValue(value);
-    lastEmittedRef.current = value;
-    latestDisplayRef.current = value;
   }, [value]);
 
-  const handleCenterChange = React.useCallback(
-    (v: number, isMajor: boolean) => {
-      setDisplayValue(v);
-      latestDisplayRef.current = v;
-      setIsMajorAtCenter(isMajor);
-    },
-    []
-  );
+  const handlePreview = React.useCallback((v: number, isMajor: boolean) => {
+    setDisplayValue(v);
+    setIsMajorAtCenter(isMajor);
+  }, []);
 
-  // Evita persistir valor "espúrio" quando a régua ainda está em scroll 0 (valor = min)
-  // e o store tem um valor real (ex: peso 75) — evita que "35 kg" apareça na tela de metas.
-  const isSpuriousMin = (v: number) => v === min && value > min + 1;
-
-  React.useEffect(() => {
-    return () => {
-      const v = latestDisplayRef.current;
-      if (v !== lastEmittedRef.current && !isSpuriousMin(v)) {
-        lastEmittedRef.current = v;
-        onChange(v);
-      }
-    };
-  }, [onChange, min, value]);
+  // Determina casas decimais automaticamente se não fornecido
+  const dp = React.useMemo(() => {
+    if (decimalPlaces !== undefined) return decimalPlaces;
+    if (formatValue) return 0; // formatValue cuida da precisão
+    return Number.isInteger(step) ? 0 : 1;
+  }, [decimalPlaces, step, formatValue]);
 
   const displayStr = React.useMemo(() => {
     if (formatValue) return formatValue(displayValue);
-    const isInteger =
-      Number.isInteger(step) && Number.isInteger(displayValue);
-    return isInteger ? `${Math.round(displayValue)}` : displayValue.toFixed(1);
-  }, [displayValue, step, formatValue]);
+    return dp === 0
+      ? `${Math.round(displayValue)}`
+      : displayValue.toFixed(dp);
+  }, [displayValue, dp, formatValue]);
 
   return (
-    <View style={styles.card}>
+    <View style={[cardStyles.card, { height: CARD_HEIGHT }]}>
+      {/* Linha central verde — restrita à área da régua */}
       <View
         pointerEvents="none"
         style={[
-          styles.cardCentroidLine,
-          isMajorAtCenter && styles.cardCentroidLineGlow,
+          cardStyles.centerLine,
+          isMajorAtCenter && cardStyles.centerLineGlow,
         ]}
       />
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardLabel}>{label}</Text>
-        <View style={styles.valueRow}>
-          <Text style={styles.valueText}>{displayStr}</Text>
-          <Text style={styles.valueUnit}>{unit}</Text>
+
+      {/* Header: label + valor */}
+      <View style={cardStyles.header}>
+        <Text style={cardStyles.label}>{label}</Text>
+        <View style={cardStyles.valueRow}>
+          <Text style={cardStyles.valueNumber}>{displayStr}</Text>
+          <Text style={cardStyles.valueUnit}>{unit}</Text>
         </View>
       </View>
-      <RulerPicker
+
+      {/* Régua */}
+      <Ruler
         min={min}
         max={max}
         step={step}
@@ -446,121 +395,85 @@ export function BodyMetricPicker({
         majorStep={majorStep}
         mediumStep={mediumStep}
         onChange={onChange}
-        formatValue={formatValue}
-        onCenterChange={handleCenterChange}
-        displayStep={displayStep}
+        onPreview={handlePreview}
       />
     </View>
   );
 }
 
-const CENTROID_LINE_WIDTH = 2;
+// ─── Estilos do card ───────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const CENTER_LINE_W = 2;
+// Layout: paddingTop(md) + HEADER_HEIGHT + marginBottom(md) + RULER_HEIGHT = CARD_HEIGHT
+const HEADER_HEIGHT = CARD_HEIGHT - RULER_HEIGHT - Spacing.md - Spacing.md;
+
+const cardStyles = StyleSheet.create({
   card: {
     position: "relative",
-    minHeight: 152,
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.lg,
+    paddingBottom: 0,
     borderRadius: Radius.xl,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
+    overflow: "hidden",
   },
-  cardCentroidLine: {
+  centerLine: {
     position: "absolute",
     left: "50%",
-    marginLeft: -CENTROID_LINE_WIDTH / 2,
-    top: 0,
+    marginLeft: -CENTER_LINE_W / 2,
+    // Começa exatamente na área da régua: paddingTop + HEADER_HEIGHT + marginBottom
+    top: Spacing.md + HEADER_HEIGHT + Spacing.md,
     bottom: 0,
-    width: CENTROID_LINE_WIDTH,
+    width: CENTER_LINE_W,
     backgroundColor: Colors.primary,
-    borderRadius: 1,
+    borderRadius: CENTER_LINE_W / 2,
   },
-  cardCentroidLineGlow: {
+  centerLineGlow: {
     ...(Platform.OS === "ios"
       ? {
           shadowColor: Colors.primary,
           shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0.7,
-          shadowRadius: 10,
+          shadowOpacity: 0.8,
+          shadowRadius: 8,
         }
       : {
-          elevation: 8,
+          elevation: 6,
           shadowColor: Colors.primary,
         }),
   },
-  cardHeader: {
+  header: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
-    marginBottom: Spacing.sm,
+    height: HEADER_HEIGHT,
+    marginBottom: Spacing.md,
   },
-  cardLabel: {
+  label: {
     ...Typography.label,
-    color: Colors.text,
+    color: Colors.textSecondary,
+    alignSelf: "center",
   },
   valueRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: Spacing.xs,
+    gap: 4,
   },
-  valueText: {
-    ...Typography.h1,
-    fontSize: 24,
+  valueNumber: {
+    fontFamily: "sans-serif",
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.5,
     color: Colors.primary,
+    lineHeight: 32,
   },
   valueUnit: {
-    ...Typography.body,
-    fontSize: 14,
-    color: Colors.primary,
+    fontFamily: "sans-serif",
+    fontSize: 13,
     fontWeight: "500",
-  },
-  rulerContainer: {
-    position: "relative",
-    height: 56,
-    justifyContent: "center",
-  },
-  rulerTrack: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: Colors.border,
-    top: 32,
-  },
-  tickItem: {
-    alignItems: "center",
-    justifyContent: "flex-start",
-    width: ITEM_WIDTH,
-  },
-  tickWrapper: {
-    height: 32,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-  tick: {
-    width: 3,
-    borderRadius: 1.5,
-    backgroundColor: Colors.border,
-  },
-  tickLabel: {
-    ...Typography.caption,
-    marginTop: 4,
-    fontSize: 10,
-    color: Colors.textSecondary,
-  },
-  continuousRuler: {
-    position: "relative",
-    height: 56,
-  },
-  continuousTickWrap: {
-    position: "absolute",
-    width: 3,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    top: 0,
+    color: Colors.primary,
+    letterSpacing: 0.5,
+    lineHeight: 32,
   },
 });

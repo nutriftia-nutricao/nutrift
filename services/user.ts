@@ -17,6 +17,7 @@ function isMissingBodyFatColumnError(error: unknown): boolean {
 
 /** Valores padrão para perfil criado via OAuth (Google) — usuário deve completar onboarding. */
 function defaultUserRow(id: string, email: string, name: string): Omit<User, "created_at"> {
+  const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   return {
     id,
     name: name || "Usuário",
@@ -26,15 +27,17 @@ function defaultUserRow(id: string, email: string, name: string): Omit<User, "cr
     weight_kg: 75,
     height_cm: 178,
     body_fat_pct: null,
-    goal: "manter",
+    goal: "definir_corpo",
     activity: "moderado",
     workout_type: null,
     workout_time: null,
     target_weight: 75,
+    target_body_fat_pct: null,
     weekly_pace: 0.5,
     diet_type: null,
     restrictions: [],
-    plan: "free",
+    plan: "trial",
+    trial_ends_at: trialEndsAt,
     tmb: 1700,
     tdee: 2100,
     daily_kcal: 2100,
@@ -44,6 +47,7 @@ function defaultUserRow(id: string, email: string, name: string): Omit<User, "cr
     hydration_ml: 2500,
     target_date: DEFAULT_TARGET_DATE,
     meals_per_day: 4,
+    meals: [],
     onboarding_completed: false,
   };
 }

@@ -36,15 +36,15 @@ export function calcularNutricao(user: {
   // 3. Meta Calórica
   let ajuste = 0;
   if (user.goal === "perder_gordura") {
-    // RitmoAjuste maps pace to calorie deficit
-    // Assuming RitmoAjuste is correctly defined in constants/macros.ts
-    // If not, we can define it here or use a formula (7700kcal per kg)
-    // 0.5kg/week = -500kcal/day roughly
     ajuste = RitmoAjuste[user.weekly_pace] || -500;
   } else if (user.goal === "ganhar_massa") {
-    ajuste = 300; // Superávit fixo ou baseado em ritmo?
-  } else {
-    ajuste = 0; // Manter / Só acompanhar
+    ajuste = 300;
+  } else if (user.goal === "definir_corpo") {
+    // Small deficit: reduce fat while preserving muscle
+    ajuste = -200;
+  } else if (user.goal === "recomposicao") {
+    // Minimal deficit: lose fat and gain muscle simultaneously
+    ajuste = -150;
   }
 
   const meta = Math.round(tdee + ajuste);
@@ -62,9 +62,15 @@ export function calcularNutricao(user: {
     protein_g = Math.round(user.weight_kg * 2.2);
     fat_g = Math.round((meta * 0.25) / 9);
     carbo_g = Math.round((meta - protein_g * 4 - fat_g * 9) / 4);
+  } else if (user.goal === "definir_corpo") {
+    // High protein to preserve muscle during small deficit
+    protein_g = Math.round(user.weight_kg * 2.0);
+    fat_g = Math.round((meta * 0.25) / 9);
+    carbo_g = Math.round((meta - protein_g * 4 - fat_g * 9) / 4);
   } else {
-    protein_g = Math.round(user.weight_kg * 1.8);
-    fat_g = Math.round((meta * 0.3) / 9);
+    // recomposicao: highest protein to support fat loss + muscle gain simultaneously
+    protein_g = Math.round(user.weight_kg * 2.2);
+    fat_g = Math.round((meta * 0.25) / 9);
     carbo_g = Math.round((meta - protein_g * 4 - fat_g * 9) / 4);
   }
 
@@ -96,8 +102,8 @@ export function calcularNutricao(user: {
     case "ganhar_massa":
       hydration += 200;
       break;
-    case "manter":
-    case "so_acompanhar":
+    case "definir_corpo":
+    case "recomposicao":
       hydration += 300;
       break;
   }
@@ -109,17 +115,17 @@ export function calcularNutricao(user: {
   let weeks = 0;
   if (user.goal === "perder_gordura") {
     const diff = user.weight_kg - user.target_weight;
-    if (diff > 0) {
-      weeks = diff / user.weekly_pace;
-    }
+    if (diff > 0) weeks = diff / user.weekly_pace;
   } else if (user.goal === "ganhar_massa") {
     const diff = user.target_weight - user.weight_kg;
-    if (diff > 0) {
-      // Assuming 0.25kg/week for gain if not specified, or use weekly_pace if applicable
-      // CLAUDE.md Step 7 says "Ritmo semanal (só para Perder gordura e Ganhar massa)"
-      // So we use user.weekly_pace for gain too.
-      weeks = diff / user.weekly_pace;
-    }
+    if (diff > 0) weeks = diff / user.weekly_pace;
+  } else if (user.goal === "definir_corpo") {
+    // Gradual: ~0.25kg/week (AI will adjust)
+    const diff = user.weight_kg - user.target_weight;
+    if (diff > 0) weeks = diff / 0.25;
+  } else if (user.goal === "recomposicao") {
+    // Recomposition is long-term; estimate ~16 weeks as baseline
+    weeks = 16;
   }
 
   const target_date = addWeeks(new Date(), Math.max(Math.ceil(weeks), 1));

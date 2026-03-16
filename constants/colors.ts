@@ -27,12 +27,12 @@ export const Colors = {
   errorBg: "#3D1F14",
 
   // Macros (consistentes em todo o app)
-  protein: "#FF6F43",
-  proteinBg: "#3D1F14",
-  carbo: "#F59E0B",
-  carboBg: "#3D2E0A",
-  fat: "#45C588",
-  fatBg: "#1A3D2E",
+  protein: "#3B82F6",
+  proteinBg: "#10233D",
+  carbo: "#CAFF66",
+  carboBg: "#2A3D0A",
+  fat: "#F59E0B",
+  fatBg: "#3D2E0A",
 
   // Legado (manter compatibilidade se necessário, mas evitar uso)
   green: "#CAFF66",

@@ -11,13 +11,27 @@ export interface SignUpResult {
   needsEmailConfirmation?: boolean;
 }
 
-export async function signUp(email: string, password: string): Promise<SignUpResult> {
+export async function signUp(
+  email: string,
+  password: string,
+  name?: string
+): Promise<SignUpResult> {
   const normalizedEmail = email.trim().toLowerCase();
+  const normalizedName = (name ?? "").trim();
 
   // Tenta criar a conta
   const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
     email: normalizedEmail,
     password,
+    options:
+      normalizedName.length > 0
+        ? {
+            data: {
+              name: normalizedName,
+              full_name: normalizedName,
+            },
+          }
+        : undefined,
   });
 
   if (signUpError) {
@@ -62,8 +76,10 @@ export async function signInWithApple(): Promise<{ error: Error | null }> {
 }
 
 async function signInWithProvider(provider: "google" | "apple"): Promise<{ error: Error | null }> {
-  // No Expo Go: exp://192.168.x.x:8081/--/
-  // Em build standalone: nutrift://
+  // Linking.createURL gera automaticamente a URL correta:
+  // - Expo Go (dev): exp://192.168.x.x:8081/--/
+  // - Build standalone: nutrift://
+  // - Web: window.location.origin
   const redirectUrl =
     Platform.OS === "web"
       ? typeof window !== "undefined"
@@ -75,6 +91,7 @@ async function signInWithProvider(provider: "google" | "apple"): Promise<{ error
     provider,
     options: {
       redirectTo: redirectUrl ?? undefined,
+      skipBrowserRedirect: true, // OBRIGATÓRIO: sem isso o Supabase abre browser antes do openAuthSessionAsync
       queryParams: {
         access_type: "offline",
         prompt: "consent",
@@ -107,10 +124,18 @@ async function signInWithProvider(provider: "google" | "apple"): Promise<{ error
   }
 
   if (result.type === "success" && result.url) {
-    // Tokens podem vir no hash (#access_token=...) ou como query params
     const rawUrl = result.url;
+    const parsed = Linking.parse(rawUrl);
+    const qp = parsed.queryParams as Record<string, string> | undefined;
 
-    // Extrai a parte do hash se existir
+    // PKCE flow (Supabase v2 default for mobile): URL returns ?code=...
+    const code = qp?.code;
+    if (code) {
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(rawUrl);
+      return { error: exchangeError ?? null };
+    }
+
+    // Implicit flow fallback: tokens in hash (#access_token=...) or query params
     const hashIndex = rawUrl.indexOf("#");
     const hashString = hashIndex !== -1 ? rawUrl.slice(hashIndex + 1) : "";
     const hashParams = new URLSearchParams(hashString);
@@ -118,10 +143,7 @@ async function signInWithProvider(provider: "google" | "apple"): Promise<{ error
     let accessToken = hashParams.get("access_token");
     let refreshToken = hashParams.get("refresh_token");
 
-    // Fallback: tenta nos query params
     if (!accessToken || !refreshToken) {
-      const parsed = Linking.parse(rawUrl);
-      const qp = parsed.queryParams as Record<string, string> | undefined;
       accessToken = accessToken ?? qp?.access_token ?? null;
       refreshToken = refreshToken ?? qp?.refresh_token ?? null;
     }
@@ -134,7 +156,7 @@ async function signInWithProvider(provider: "google" | "apple"): Promise<{ error
       return { error: sessionError ?? null };
     }
 
-    // Se não há tokens na URL de retorno, verifica se o Supabase já tem sessão ativa
+    // Last resort: session may already be active
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData.session) {
       return { error: null };
@@ -174,8 +196,25 @@ export async function recoverSessionFromUrl(): Promise<void> {
   );
 }
 
+export async function resetPassword(email: string): Promise<{ error: Error | null }> {
+  const redirectUrl =
+    Platform.OS === "web" && typeof window !== "undefined"
+      ? `${window.location.origin}/`
+      : Linking.createURL("/");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+    { redirectTo: redirectUrl }
+  );
+  return { error: error ?? null };
+}
+
 export function getSession() {
   return supabase.auth.getSession();
+}
+
+export function refreshSession() {
+  return supabase.auth.refreshSession();
 }
 
 export function onAuthStateChange(callback: (event: string, session: unknown) => void) {

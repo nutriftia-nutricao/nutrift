@@ -39,7 +39,7 @@ export default function TreinoScreen() {
   const [workoutTime, setWorkoutTime] = useState<string>(user?.workout_time ?? "");
   const [trainingDays, setTrainingDays] = useState<string[]>(["Seg", "Qua", "Sex"]);
   const [goalMinutes, setGoalMinutes] = useState<number>(
-    useActivityStore.getState().goalMinutesPerDay ?? 45
+    useActivityStore.getState().goalMinutesPerDay
   );
   const [saving, setSaving] = useState(false);
 
@@ -90,7 +90,7 @@ export default function TreinoScreen() {
         <Pressable style={styles.backBtn} onPress={() => goBack()}>
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Treino</Text>
+        <Text style={styles.headerTitle}>Atividades</Text>
         <View style={{ width: 40 }} />
       </View>
 

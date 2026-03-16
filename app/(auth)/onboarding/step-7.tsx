@@ -38,19 +38,17 @@ function RitmoCard({ label, subtitle, emoji, selected, badge, onPress }: RitmoCa
         pressed && styles.pressed,
       ]}
     >
+      {badge && (
+        <View style={styles.ritmoBadge}>
+          <Text style={styles.ritmoBadgeText}>{badge}</Text>
+        </View>
+      )}
       <View style={styles.ritmoCardLeft}>
         <View style={styles.ritmoEmojiBox}>
           <Text style={styles.ritmoEmoji}>{emoji}</Text>
         </View>
         <View style={styles.ritmoTextBlock}>
-          <View style={styles.ritmoTitleRow}>
-            <Text style={styles.ritmoTitle}>{label}</Text>
-            {badge && (
-              <View style={styles.ritmoBadge}>
-                <Text style={styles.ritmoBadgeText}>{badge}</Text>
-              </View>
-            )}
-          </View>
+          <Text style={styles.ritmoTitle}>{label}</Text>
           <Text
             style={[
               styles.ritmoSubtitle,
@@ -76,6 +74,7 @@ export default function OnboardingStep7Screen() {
   };
 
   const showRitmoOptions = goal === "perder_gordura" || goal === "ganhar_massa";
+  const isRecomposicao = goal === "recomposicao";
 
   return (
     <View style={styles.root}>
@@ -119,7 +118,9 @@ export default function OnboardingStep7Screen() {
           <View style={styles.infoCard}>
             <Ionicons name="information-circle" size={24} color={Colors.textSecondary} />
             <Text style={styles.infoText}>
-              Para melhorar sua composição corporal, o foco é na qualidade da alimentação e treino para trocar gordura por massa magra, mantendo o peso estável.
+              {isRecomposicao
+                ? "Recomposição corporal é gradual e inteligente. O Nutrift vai ajustar suas calorias automaticamente com base no seu progresso real."
+                : "Definir o corpo combina um pequeno déficit calórico com proteína alta para reduzir gordura preservando toda a massa muscular."}
             </Text>
           </View>
         )}
@@ -212,20 +213,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     justifyContent: "center",
   },
-  ritmoTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    flexWrap: "wrap",
-  },
   ritmoTitle: {
     ...Typography.bodySmall,
     fontSize: 14,
     fontWeight: "600",
     color: Colors.text,
-    flexShrink: 1,
   },
   ritmoBadge: {
+    position: "absolute",
+    top: Spacing.sm,
+    right: Spacing.sm,
     backgroundColor: Colors.primaryDark,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
@@ -234,7 +231,7 @@ const styles = StyleSheet.create({
   ritmoBadgeText: {
     fontSize: 9,
     fontWeight: "700",
-    color: Colors.surface,
+    color: Colors.textInverse,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },

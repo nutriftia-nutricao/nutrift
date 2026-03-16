@@ -1,7 +1,7 @@
 export type Plan = "free" | "trial" | "pro" | "ultra";
 
 export type UserSex = "masculino" | "feminino";
-export type UserGoal = "perder_gordura" | "ganhar_massa" | "manter" | "so_acompanhar";
+export type UserGoal = "perder_gordura" | "ganhar_massa" | "definir_corpo" | "recomposicao";
 export type UserActivity =
   | "sedentario"
   | "levemente_ativo"
@@ -26,6 +26,7 @@ export interface User {
   workout_type?: UserWorkoutType | null;
   workout_time?: string | null;
   target_weight: number;
+  target_body_fat_pct?: number | null;
   weekly_pace: number;
   diet_type?: UserDietType | null;
   restrictions?: UserRestriction[];
@@ -40,12 +41,23 @@ export interface User {
   carbo_g: number;
   fat_g: number;
   hydration_ml: number;
+  /** Percentuais customizados pelo usuário (0-100). Null = usa defaults do objetivo. */
+  protein_pct?: number | null;
+  carbo_pct?: number | null;
+  fat_pct?: number | null;
   target_date: string; // ISO date
   /** Quantas refeições o usuário costuma fazer por dia (onboarding). Padrão 4. */
   meals_per_day?: number;
+  meals?: Array<{
+    type: string;
+    label: string;
+    emoji: string;
+    default_time: string;
+  }>;
   /** Alimentos preferidos selecionados no onboarding (para personalizar plano). */
   liked_foods?: string[];
   /** Se o usuário completou o onboarding (obrigatório para novos usuários OAuth). */
   onboarding_completed?: boolean;
+  avatar_url?: string | null;
   created_at?: string;
 }

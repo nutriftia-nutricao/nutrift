@@ -7,14 +7,18 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { FoodEditSheet } from "../components/FoodEditSheet";
 import { IconCircle } from "../components/ui";
 import { Colors } from "../constants/colors";
 import { Radius } from "../constants/radius";
@@ -26,7 +30,7 @@ import { useUserStore } from "../stores/useUserStore";
 import { useOnboardingStore } from "../stores/useOnboardingStore";
 import { generateWeeklyPlan } from "../services/weeklyPlan";
 import { getSimilarFoodSuggestions, type SubstitutePreferences } from "../services/gemini";
-import { getSession, recoverSessionFromUrl } from "../services/auth";
+import { getSession, recoverSessionFromUrl, signOut } from "../services/auth";
 import { ensureUserProfile, fetchUserProfile } from "../services/user";
 import type { MealType } from "../types/nutrition";
 import { MEAL_TYPE_LABELS } from "../types/nutrition";
@@ -55,11 +59,18 @@ export default function PlanoSemanalScreen() {
   const [replacingFood, setReplacingFood] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [showSuccessCard, setShowSuccessCard] = useState(false);
+  const [editSheet, setEditSheet] = useState<{
+    food: PlannedFood;
+    meal: PlannedMeal;
+  } | null>(null);
 
   const user = useUserStore((s) => s.user);
   const isPro = useIsPro();
   const weeklyPlanStore = useWeeklyPlanStore();
-  const { diet_type, restrictions, liked_foods } = useOnboardingStore();
+  const onboardingDietType = useOnboardingStore((s) => s.diet_type);
+  const onboardingRestrictions = useOnboardingStore((s) => s.restrictions);
+  const onboardingLikedFoods = useOnboardingStore((s) => s.liked_foods);
   const dateISO = selectedDate.toISOString().slice(0, 10);
 
   const weekStart = useMemo(
@@ -76,18 +87,43 @@ export default function PlanoSemanalScreen() {
     return str.charAt(0).toUpperCase() + str.slice(1);
   }, [weekStart]);
 
-  const daysRemaining = useMemo(() => {
-    if (!user?.last_plan_generated_at) return 0;
-    const lastGen = new Date(user.last_plan_generated_at);
-    const daysSince = Math.floor((Date.now() - lastGen.getTime()) / 86400000);
-    return daysSince < 7 ? 7 - daysSince : 0;
-  }, [user?.last_plan_generated_at]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function guardAccess() {
       try {
+        const isExternalEntry = !router.canGoBack();
+        if (Platform.OS !== "web" && isExternalEntry) {
+          const initialUrl = await Linking.getInitialURL();
+          if (cancelled) return;
+
+          if (initialUrl) {
+            const parsed = Linking.parse(initialUrl);
+            const scheme = (parsed.scheme ?? "").toLowerCase();
+            const pathParts = [parsed.hostname, parsed.path].filter(
+              (part): part is string => typeof part === "string" && part.trim().length > 0
+            );
+            const normalizedPath = pathParts
+              .join("/")
+              .replace(/^\/+|\/+$/g, "")
+              .toLowerCase();
+
+            if (scheme === "nutrift" && normalizedPath === "plano-semanal") {
+              try {
+                await signOut();
+              } catch {
+                // Mesmo com falha de rede, forçamos login para não pular o fluxo.
+              }
+
+              if (cancelled) return;
+              useUserStore.getState().clearUser();
+              router.replace("/(auth)/login");
+              return;
+            }
+          }
+        }
+
         await recoverSessionFromUrl();
 
         const currentUser = useUserStore.getState().user;
@@ -181,12 +217,31 @@ export default function PlanoSemanalScreen() {
 
   const substitutePreferences: SubstitutePreferences = useMemo(
     () => ({
-      diet_type,
-      restrictions: restrictions ?? [],
-      liked_foods: liked_foods ?? [],
+      diet_type: user?.diet_type ?? onboardingDietType,
+      restrictions: user?.restrictions ?? onboardingRestrictions ?? [],
+      liked_foods: user?.liked_foods ?? onboardingLikedFoods ?? [],
     }),
-    [diet_type, restrictions, liked_foods]
+    [user?.diet_type, user?.restrictions, user?.liked_foods, onboardingDietType, onboardingRestrictions, onboardingLikedFoods]
   );
+
+  const handleOpenEditSheet = (meal: PlannedMeal, food: PlannedFood) => {
+    setEditSheet({ food, meal });
+  };
+
+  const handleSheetAiSubstitute = async () => {
+    if (!editSheet) return;
+    await handleReplaceWithAi(editSheet.meal, editSheet.food);
+  };
+
+  const handleSheetSave = (updatedFood: PlannedFood) => {
+    if (!editSheet) return;
+    weeklyPlanStore.updateFood(dateISO, editSheet.meal.type, updatedFood.id, updatedFood);
+  };
+
+  const handleSheetRemove = (foodId: string) => {
+    if (!editSheet) return;
+    weeklyPlanStore.removeFood(dateISO, editSheet.meal.type, foodId);
+  };
 
   const toggleMeal = (mealType: MealType) => {
     setExpandedMeal((prev) => (prev === mealType ? null : mealType));
@@ -202,15 +257,11 @@ export default function PlanoSemanalScreen() {
     try {
       const result = await generateWeeklyPlan(user.id);
       if (!result.data?.success) {
-        const msg =
-          result.data?.error === "cooldown" || result.data?.days_remaining != null
-            ? `Aguarde ${result.data.days_remaining ?? 0} dias para gerar novamente.`
-            : result.data?.error ?? "Não foi possível gerar o plano. Tente novamente.";
-        Alert.alert("Aviso", msg);
+        Alert.alert("Aviso", result.data?.error ?? "Não foi possível gerar o plano. Tente novamente.");
         return;
       }
       await weeklyPlanStore.loadWeeklyPlan(user.id, weekStartISO);
-      Alert.alert("Pronto!", "Seu plano foi gerado com sucesso.");
+      setShowSuccessCard(true);
     } catch {
       Alert.alert("Erro", "Não foi possível gerar o plano. Verifique sua conexão.");
     } finally {
@@ -333,19 +384,40 @@ export default function PlanoSemanalScreen() {
             const isSelected = d.toDateString() === selectedDate.toDateString();
             const dayAbbr = format(d, "EEE", { locale: ptBR }).toUpperCase().slice(0, 3);
             const dayNum = format(d, "d");
+            const mealsForDate = weeklyPlanStore.getPlansForDate(iso);
+            const hasPlan = mealsForDate.length > 0;
+            const allComplete = hasPlan && mealsForDate.every(
+              (m) => m.foods.length > 0 && m.foods.every((f) => f.checked)
+            );
+            const hasAnyChecked = hasPlan && mealsForDate.some((m) => m.foods.some((f) => f.checked));
+            const status: "none" | "planned" | "incomplete" | "complete" = allComplete
+              ? "complete"
+              : hasAnyChecked
+                ? "incomplete"
+                : hasPlan
+                  ? "planned"
+                  : "none";
+            const isToday = iso === format(new Date(), "yyyy-MM-dd");
             return (
               <Pressable
                 key={iso}
-                style={[styles.calendarDayCard, isSelected && styles.calendarDayCardSelected]}
+                style={[
+                  styles.calendarDayCard,
+                  status === "complete" && styles.calendarDayCardComplete,
+                  status === "planned" && styles.calendarDayCardPlanned,
+                  status === "incomplete" && styles.calendarDayCardIncomplete,
+                  isToday && styles.calendarDayCardToday,
+                  isSelected && styles.calendarDayCardSelected,
+                ]}
                 onPress={() => setSelectedDate(d)}
               >
-                <View style={[styles.calendarDayTop, isSelected && styles.calendarDayTopSelected]}>
-                  <Text style={[styles.calendarDayAbbr, isSelected && styles.calendarDayAbbrSelected]}>
+                <View style={styles.calendarDayTop}>
+                  <Text style={[styles.calendarDayAbbr, isSelected && styles.calendarDayAbbrSelected, isToday && styles.calendarDayAbbrToday]}>
                     {dayAbbr}
                   </Text>
                 </View>
                 <View style={styles.calendarDayBottom}>
-                  <Text style={[styles.calendarDayNum, isSelected && styles.calendarDayNumSelected]}>
+                  <Text style={[styles.calendarDayNum, isSelected && styles.calendarDayNumSelected, isToday && styles.calendarDayNumToday]}>
                     {dayNum}
                   </Text>
                 </View>
@@ -359,35 +431,24 @@ export default function PlanoSemanalScreen() {
       {weeklyPlanStore.status !== "loading" && (
         <View style={styles.generateSection}>
           {isPro ? (
-            <>
-              {daysRemaining > 0 ? (
-                <View style={styles.cooldownCard}>
-                  <Ionicons name="time-outline" size={20} color={Colors.textSecondary} />
-                  <Text style={styles.cooldownText}>
-                    Próxima geração disponível em {daysRemaining} {daysRemaining === 1 ? "dia" : "dias"}
-                  </Text>
-                </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.generateBtn,
+                pressed && { opacity: 0.8 },
+                generating && { opacity: 0.6 },
+              ]}
+              onPress={handleGeneratePlan}
+              disabled={generating}
+            >
+              {generating ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
               ) : (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.generateBtn,
-                    pressed && { opacity: 0.8 },
-                    generating && { opacity: 0.6 },
-                  ]}
-                  onPress={handleGeneratePlan}
-                  disabled={generating}
-                >
-                  {generating ? (
-                    <ActivityIndicator size="small" color={Colors.textInverse} />
-                  ) : (
-                    <Ionicons name="sparkles" size={18} color={Colors.textInverse} />
-                  )}
-                  <Text style={styles.generateBtnText}>
-                    {generating ? "Gerando seu plano..." : "Gerar plano com IA"}
-                  </Text>
-                </Pressable>
+                <Ionicons name="sparkles" size={18} color={Colors.textInverse} />
               )}
-            </>
+              <Text style={styles.generateBtnText}>
+                {generating ? "Gerando seu plano..." : "Gerar plano com IA"}
+              </Text>
+            </Pressable>
           ) : (
             <Pressable
               style={styles.upgradeCard}
@@ -458,6 +519,8 @@ export default function PlanoSemanalScreen() {
                         <Pressable
                           style={styles.foodContent}
                           onPress={() => toggleFoodCheck(meal.type, food.id)}
+                          onLongPress={() => handleOpenEditSheet(meal, food)}
+                          delayLongPress={400}
                         >
                           <View style={styles.foodItemTop}>
                             <Text
@@ -488,19 +551,19 @@ export default function PlanoSemanalScreen() {
                           </View>
                         </Pressable>
 
-                        {/* Troca por IA em background (sem abrir tela) */}
+                        {/* Botão editar — abre o sheet */}
                         {replacingFood === replacingKey(meal.type, food.id) ? (
                           <View style={styles.replaceLoading}>
                             <ActivityIndicator size="small" color={Colors.primaryDark} />
                           </View>
                         ) : (
                           <IconCircle
-                            icon="sync"
+                            icon="sync-outline"
                             size={36}
-                            iconSize={20}
-                            onPress={() => handleReplaceWithAi(meal, food)}
-                            accessibilityLabel={`Substituir ${food.name} por sugestão da IA`}
-                            accessibilityHint="Troca por um alimento similar com macros próximas"
+                            iconSize={18}
+                            onPress={() => handleOpenEditSheet(meal, food)}
+                            accessibilityLabel={`Substituir ${food.name}`}
+                            accessibilityHint="Abre opções para substituir, ajustar ou remover o alimento"
                           />
                         )}
                       </View>
@@ -523,6 +586,43 @@ export default function PlanoSemanalScreen() {
         )}
       </ScrollView>
       )}
+
+      {/* Modal de sucesso — plano gerado */}
+      <Modal visible={showSuccessCard} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            {/* Barra verde de destaque no topo */}
+            <View style={styles.successAccentBar} />
+
+            <View style={styles.successContent}>
+              <Text style={styles.successEmoji}>✦</Text>
+              <Text style={styles.successTitle}>Seu plano foi criado!</Text>
+              <Text style={styles.successSubtitle}>
+                Agora é só começar.{"\n"}Vamos juntos até lá! 💪
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.successBtn, pressed && { opacity: 0.85 }]}
+                onPress={() => setShowSuccessCard(false)}
+              >
+                <Text style={styles.successBtnText}>Ver meu plano  →</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Sheet de edição de alimento */}
+      <FoodEditSheet
+        visible={editSheet !== null}
+        food={editSheet?.food ?? null}
+        mealType={editSheet?.meal.type ?? null}
+        dayDate={dateISO}
+        onAiSubstitute={handleSheetAiSubstitute}
+        onSave={handleSheetSave}
+        onRemove={handleSheetRemove}
+        onClose={() => setEditSheet(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -596,21 +696,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  cooldownCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  cooldownText: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    flex: 1,
-  },
   generateBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -671,16 +756,36 @@ const styles = StyleSheet.create({
   },
   calendarDayCardSelected: {
     borderColor: Colors.greenDark,
-    backgroundColor: Colors.greenDark,
+    borderWidth: 2,
+  },
+  calendarDayCardComplete: {
+    borderColor: Colors.green,
+    borderWidth: 2,
+  },
+  calendarDayCardPlanned: {
+    borderColor: "#555555",
+    borderWidth: 2,
+  },
+  calendarDayCardIncomplete: {
+    borderColor: Colors.error,
+    borderWidth: 2,
+  },
+  calendarDayCardToday: {
+    backgroundColor: Colors.green,
+    borderColor: Colors.green,
+    borderWidth: 2,
+  },
+  calendarDayAbbrToday: {
+    color: "#000",
+  },
+  calendarDayNumToday: {
+    color: "#000",
+    fontWeight: "700",
   },
   calendarDayTop: {
-    backgroundColor: Colors.surface,
     paddingVertical: 6,
     paddingTop: 4,
     alignItems: "center",
-  },
-  calendarDayTopSelected: {
-    backgroundColor: Colors.greenDark,
   },
   calendarDayAbbr: {
     ...Typography.caption,
@@ -690,10 +795,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   calendarDayAbbrSelected: {
-    color: Colors.surface,
+    color: Colors.greenDark,
   },
   calendarDayBottom: {
-    backgroundColor: Colors.surface,
     paddingVertical: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -844,5 +948,74 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.textSecondary,
     textAlign: "center",
+  },
+
+  // ── Success Modal ─────────────────────────────────────────────
+  successOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.88)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  successCard: {
+    width: "100%",
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: "hidden",
+    // glow verde sutil
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  successAccentBar: {
+    height: 5,
+    backgroundColor: Colors.primary,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+  },
+  successContent: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.xl,
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  successEmoji: {
+    fontSize: 28,
+    color: Colors.primary,
+    marginBottom: Spacing.xs,
+  },
+  successTitle: {
+    ...Typography.h2,
+    color: Colors.text,
+    textAlign: "center",
+    fontWeight: "700",
+  },
+  successSubtitle: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  successBtn: {
+    marginTop: Spacing.md,
+    width: "100%",
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successBtnText: {
+    ...Typography.body,
+    fontWeight: "700",
+    fontSize: 16,
+    color: Colors.textInverse,
+    letterSpacing: 0.2,
   },
 });

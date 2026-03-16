@@ -1,7 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
+
+// OBRIGATÓRIO: faz o browser OAuth fechar automaticamente ao retornar para o app
+WebBrowser.maybeCompleteAuthSession();
 import {
   Alert,
   Image,
@@ -21,7 +25,8 @@ import { GradientColors } from "../../constants/gradients";
 import { Radius } from "../../constants/radius";
 import { Spacing } from "../../constants/spacing";
 import { Typography } from "../../constants/typography";
-import { getSession, recoverSessionFromUrl, signIn, signInWithApple, signInWithGoogle, signUp } from "../../services/auth";
+import { getSession, recoverSessionFromUrl, resetPassword, signIn, signInWithApple, signInWithGoogle, signUp } from "../../services/auth";
+import { supabase } from "../../services/supabase";
 import { ensureUserProfile, fetchUserProfile } from "../../services/user";
 import { useOnboardingStore } from "../../stores/useOnboardingStore";
 import { useUserStore } from "../../stores/useUserStore";
@@ -35,6 +40,9 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [loadingApple, setLoadingApple] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
 
   const setUser = useUserStore((s) => s.setUser);
   const localUser = useUserStore((s) => s.user);
@@ -54,6 +62,20 @@ export default function LoginScreen() {
     }
     tryOAuthReturn();
     return () => { cancelled = true; };
+  }, []);
+
+  // Safety net: catches session established via PKCE exchange or any OAuth flow
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user?.id) {
+        await handleAuthSuccess(
+          session.user.id,
+          session.user.email ?? undefined,
+          session.user.user_metadata as Record<string, string> | undefined
+        );
+      }
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleGoogleSignIn = async () => {
@@ -127,7 +149,7 @@ export default function LoginScreen() {
         router.replace("/(auth)/onboarding/step-1");
       } else {
         // Vai explicitamente para "Hoje" (index das tabs)
-        router.replace("/(tabs)/index");
+        router.replace("/(tabs)");
       }
     } catch (error) {
       console.error("handleAuthSuccess error:", error);
@@ -170,7 +192,11 @@ export default function LoginScreen() {
           await handleAuthSuccess(data.user.id, data.user.email, data.user.user_metadata);
         }
       } else {
-        const { userId, error, needsEmailConfirmation } = await signUp(trimmedEmail, password);
+        const { userId, error, needsEmailConfirmation } = await signUp(
+          trimmedEmail,
+          password,
+          trimmedName
+        );
 
         if (error) {
           Alert.alert("Erro ao cadastrar", error.message);
@@ -194,6 +220,27 @@ export default function LoginScreen() {
     } catch (e) {
       console.error("handleSubmit:", e);
       Alert.alert("Erro inesperado", "Ocorreu um erro. Verifique sua conexão e tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmed = forgotEmail.trim().toLowerCase();
+    if (!trimmed) {
+      Alert.alert("Campo obrigatório", "Informe seu e-mail.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await resetPassword(trimmed);
+      if (error) {
+        Alert.alert("Erro", error.message ?? "Não foi possível enviar o e-mail. Tente novamente.");
+        return;
+      }
+      setForgotSent(true);
+    } catch {
+      Alert.alert("Erro inesperado", "Verifique sua conexão e tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -225,139 +272,215 @@ export default function LoginScreen() {
 
           {/* Card */}
           <View style={styles.card}>
-            {/* Toggle Login/Cadastro */}
-            <View style={styles.tabRow}>
-              <Pressable
-                style={[styles.tab, isLogin && styles.tabActive]}
-                onPress={() => setIsLogin(true)}
-              >
-                <Text style={[styles.tabText, isLogin && styles.tabTextActive]}>Entrar</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.tab, !isLogin && styles.tabActive]}
-                onPress={() => setIsLogin(false)}
-              >
-                <Text style={[styles.tabText, !isLogin && styles.tabTextActive]}>Cadastrar</Text>
-              </Pressable>
-            </View>
-
-            {/* Campo Nome (só no cadastro) */}
-            {!isLogin && (
-              <View style={styles.fieldBlock}>
-                <Text style={styles.label}>Nome</Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Como você quer ser chamado?"
-                  placeholderTextColor={Colors.textSecondary}
-                  style={styles.input}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                />
-              </View>
-            )}
-
-            {/* Campo E-mail */}
-            <View style={styles.fieldBlock}>
-              <Text style={styles.label}>E-mail</Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="seu@email.com"
-                placeholderTextColor={Colors.textSecondary}
-                style={styles.input}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            {/* Campo Senha */}
-            <View style={styles.fieldBlock}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Senha</Text>
-                {isLogin && (
-                  <Pressable>
-                    <Text style={styles.forgotText}>Esqueci minha senha</Text>
+            {forgotMode ? (
+              /* ── Modo: esqueci minha senha ── */
+              forgotSent ? (
+                <View style={styles.forgotSentBlock}>
+                  <Ionicons name="mail-outline" size={40} color={Colors.primary} style={{ marginBottom: Spacing.lg }} />
+                  <Text style={styles.forgotSentTitle}>E-mail enviado!</Text>
+                  <Text style={styles.forgotSentBody}>
+                    Verifique sua caixa de entrada e clique no link para redefinir sua senha.
+                  </Text>
+                  <Pressable
+                    onPress={() => { setForgotMode(false); setForgotSent(false); setForgotEmail(""); }}
+                    style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.9 }]}
+                  >
+                    <LinearGradient
+                      colors={GradientColors.primary}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={styles.gradientButton}
+                    >
+                      <Text style={styles.primaryButtonText}>Voltar ao login</Text>
+                    </LinearGradient>
                   </Pressable>
+                </View>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={() => { setForgotMode(false); setForgotEmail(""); }}
+                    style={styles.forgotBackRow}
+                  >
+                    <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
+                    <Text style={styles.forgotBackText}>Voltar</Text>
+                  </Pressable>
+                  <Text style={styles.forgotTitle}>Redefinir senha</Text>
+                  <Text style={styles.forgotBody}>
+                    Informe o e-mail da sua conta. Enviaremos um link para você criar uma nova senha.
+                  </Text>
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.label}>E-mail</Text>
+                    <TextInput
+                      value={forgotEmail}
+                      onChangeText={setForgotEmail}
+                      placeholder="seu@email.com"
+                      placeholderTextColor={Colors.textSecondary}
+                      style={styles.input}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoFocus
+                    />
+                  </View>
+                  <Pressable
+                    onPress={handleForgotPassword}
+                    disabled={loading}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      pressed && { opacity: 0.9 },
+                      loading && { opacity: 0.7 },
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={GradientColors.primary}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={styles.gradientButton}
+                    >
+                      <Text style={styles.primaryButtonText}>
+                        {loading ? "Enviando..." : "Enviar link"}
+                      </Text>
+                    </LinearGradient>
+                  </Pressable>
+                </>
+              )
+            ) : (
+              <>
+                {/* Toggle Login/Cadastro */}
+                <View style={styles.tabRow}>
+                  <Pressable
+                    style={[styles.tab, isLogin && styles.tabActive]}
+                    onPress={() => setIsLogin(true)}
+                  >
+                    <Text style={[styles.tabText, isLogin && styles.tabTextActive]}>Entrar</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.tab, !isLogin && styles.tabActive]}
+                    onPress={() => setIsLogin(false)}
+                  >
+                    <Text style={[styles.tabText, !isLogin && styles.tabTextActive]}>Cadastrar</Text>
+                  </Pressable>
+                </View>
+
+                {/* Campo Nome (só no cadastro) */}
+                {!isLogin && (
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.label}>Nome</Text>
+                    <TextInput
+                      value={name}
+                      onChangeText={setName}
+                      placeholder="Como você quer ser chamado?"
+                      placeholderTextColor={Colors.textSecondary}
+                      style={styles.input}
+                      autoCapitalize="words"
+                      autoCorrect={false}
+                    />
+                  </View>
                 )}
-              </View>
-              {!isLogin && (
-                <Text style={styles.passwordHint}>Mínimo de 6 caracteres</Text>
-              )}
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor={Colors.textSecondary}
-                  style={[styles.input, { paddingRight: 48 }]}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <Pressable
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword((v) => !v)}
-                >
-                  <Ionicons
-                    name={showPassword ? "eye-off-outline" : "eye-outline"}
-                    size={20}
-                    color={Colors.textSecondary}
+
+                {/* Campo E-mail */}
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>E-mail</Text>
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="seu@email.com"
+                    placeholderTextColor={Colors.textSecondary}
+                    style={styles.input}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
+                </View>
+
+                {/* Campo Senha */}
+                <View style={styles.fieldBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>Senha</Text>
+                    {isLogin && (
+                      <Pressable onPress={() => { setForgotEmail(email); setForgotMode(true); }}>
+                        <Text style={styles.forgotText}>Esqueci minha senha</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  {!isLogin && (
+                    <Text style={styles.passwordHint}>Mínimo de 6 caracteres</Text>
+                  )}
+                  <View style={styles.inputWrapper}>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="••••••••"
+                      placeholderTextColor={Colors.textSecondary}
+                      style={[styles.input, { paddingRight: 48 }]}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                    <Pressable
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword((v) => !v)}
+                    >
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={20}
+                        color={Colors.textSecondary}
+                      />
+                    </Pressable>
+                  </View>
+                </View>
+
+                {/* Botão principal */}
+                <Pressable
+                  onPress={handleSubmit}
+                  disabled={loading}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed && { opacity: 0.9 },
+                    loading && { opacity: 0.7 },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={GradientColors.primary}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
+                    style={styles.gradientButton}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {loading
+                        ? "Processando..."
+                        : isLogin
+                        ? "Entrar"
+                        : "Criar conta grátis"}
+                    </Text>
+                  </LinearGradient>
                 </Pressable>
-              </View>
-            </View>
 
-            {/* Botão principal */}
-            <Pressable
-              onPress={handleSubmit}
-              disabled={loading}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && { opacity: 0.9 },
-                loading && { opacity: 0.7 },
-              ]}
-            >
-              <LinearGradient
-                colors={GradientColors.primary}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={styles.gradientButton}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {loading
-                    ? "Processando..."
-                    : isLogin
-                    ? "Entrar"
-                    : "Criar conta grátis"}
-                </Text>
-              </LinearGradient>
-            </Pressable>
+                {/* Divisor */}
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>Entrar com</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            {/* Divisor */}
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Entrar com</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Botões sociais */}
-            <View style={styles.socialRow}>
-              <SocialButton
-                label={loadingApple ? "..." : "Apple"}
-                icon="logo-apple"
-                dark
-                onPress={handleAppleSignIn}
-                disabled={loadingApple}
-              />
-              <SocialButton
-                label={loadingGoogle ? "..." : "Google"}
-                icon="logo-google"
-                dark={false}
-                onPress={handleGoogleSignIn}
-                disabled={loadingGoogle}
-              />
-            </View>
+                {/* Botões sociais */}
+                <View style={styles.socialRow}>
+                  <SocialButton
+                    label={loadingApple ? "..." : "Apple"}
+                    icon="logo-apple"
+                    dark
+                    onPress={handleAppleSignIn}
+                    disabled={loadingApple}
+                  />
+                  <SocialButton
+                    label={loadingGoogle ? "..." : "Google"}
+                    icon="logo-google"
+                    dark={false}
+                    onPress={handleGoogleSignIn}
+                    disabled={loadingGoogle}
+                  />
+                </View>
+              </>
+            )}
           </View>
 
           {/* Rodapé */}
@@ -591,6 +714,43 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "600",
     color: Colors.text,
+  },
+  forgotBackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginBottom: Spacing.lg,
+  },
+  forgotBackText: {
+    ...Typography.bodySmall,
+    color: Colors.textSecondary,
+  },
+  forgotTitle: {
+    ...Typography.h3,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  forgotBody: {
+    ...Typography.bodySmall,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: Spacing.xl,
+  },
+  forgotSentBlock: {
+    alignItems: "center",
+    paddingVertical: Spacing.xl,
+  },
+  forgotSentTitle: {
+    ...Typography.h3,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  forgotSentBody: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: Spacing.xxl,
   },
   footer: {
     marginTop: Spacing.xxl,

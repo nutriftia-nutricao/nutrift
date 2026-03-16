@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
 import { goBack } from "../../utils/navigation";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "../../constants/colors";
@@ -48,6 +48,54 @@ export default function DadosCorporaisScreen() {
   const [height, setHeight] = useState(String(user?.height_cm ?? ""));
   const [targetWeight, setTargetWeight] = useState(String(user?.target_weight ?? ""));
   const [saving, setSaving] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(user?.avatar_url ?? null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const handlePickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permissão necessária", "Permite acesso à galeria para escolher uma foto.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    if (!user?.id) return;
+
+    setUploadingAvatar(true);
+    try {
+      const ext = asset.uri.split(".").pop() ?? "jpg";
+      const path = `${user.id}/avatar.${ext}`;
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const arrayBuffer = await new Response(blob).arrayBuffer();
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
+
+      if (uploadError) {
+        Alert.alert("Erro", "Não foi possível enviar a foto.");
+        return;
+      }
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+
+      await supabase.from("users").update({ avatar_url: publicUrl }).eq("id", user.id);
+      updateUser({ avatar_url: publicUrl });
+      setAvatarUri(publicUrl);
+    } catch {
+      Alert.alert("Erro", "Não foi possível enviar a foto.");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!user?.id) return;
@@ -120,6 +168,22 @@ export default function DadosCorporaisScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Avatar */}
+        <Pressable style={styles.avatarWrap} onPress={handlePickAvatar} disabled={uploadingAvatar}>
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitial}>
+                {(user?.name ?? "?")[0].toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View style={styles.avatarEditBadge}>
+            <Ionicons name={uploadingAvatar ? "hourglass-outline" : "camera-outline"} size={14} color="#FFF" />
+          </View>
+        </Pressable>
+
         {/* Resumo atual */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryItem}>
@@ -164,26 +228,6 @@ export default function DadosCorporaisScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>PLANO NUTRICIONAL ATUAL</Text>
-        <View style={styles.macroCard}>
-          <View style={styles.macroItem}>
-            <Text style={styles.macroValue}>{user?.daily_kcal ?? "—"}</Text>
-            <Text style={styles.macroLabel}>kcal/dia</Text>
-          </View>
-          <View style={styles.macroItem}>
-            <Text style={[styles.macroValue, { color: Colors.protein }]}>{user?.protein_g ?? "—"}g</Text>
-            <Text style={styles.macroLabel}>Proteína</Text>
-          </View>
-          <View style={styles.macroItem}>
-            <Text style={[styles.macroValue, { color: Colors.carbo }]}>{user?.carbo_g ?? "—"}g</Text>
-            <Text style={styles.macroLabel}>Carbos</Text>
-          </View>
-          <View style={styles.macroItem}>
-            <Text style={[styles.macroValue, { color: Colors.fat }]}>{user?.fat_g ?? "—"}g</Text>
-            <Text style={styles.macroLabel}>Gordura</Text>
-          </View>
-        </View>
-
         <Pressable
           style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
           onPress={handleSave}
@@ -198,16 +242,71 @@ export default function DadosCorporaisScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
-  backBtn: { width: 40, height: 40, borderRadius: Radius.pill, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border },
+  avatarWrap: {
+    alignSelf: "center",
+    marginBottom: Spacing.md,
+    position: "relative",
+  },
+  avatarImage: { width: 80, height: 80, borderRadius: 40 },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.greenDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitial: { ...Typography.h2, color: "#FFF", fontSize: 28 },
+  avatarEditBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.greenDark,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   headerTitle: { ...Typography.h4, color: Colors.text },
   content: { paddingHorizontal: Spacing.xl, paddingBottom: 110, gap: Spacing.sm },
-  summaryCard: { flexDirection: "row", backgroundColor: Colors.greenLight, borderRadius: Radius.xl, padding: Spacing.lg, marginBottom: Spacing.sm },
+  summaryCard: {
+    flexDirection: "row",
+    backgroundColor: Colors.greenLight,
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
   summaryItem: { flex: 1, alignItems: "center" },
   summaryValue: { ...Typography.h3, color: Colors.greenDark },
   summaryUnit: { ...Typography.caption, color: Colors.greenDark, marginTop: 2 },
   summaryDivider: { width: 1, backgroundColor: `${Colors.greenDark}30` },
-  sectionLabel: { ...Typography.label, fontSize: 11, color: Colors.textMuted, marginTop: Spacing.md, marginLeft: Spacing.xs },
+  sectionLabel: {
+    ...Typography.label,
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: Spacing.md,
+    marginLeft: Spacing.xs,
+  },
   calcCard: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
@@ -221,17 +320,25 @@ const styles = StyleSheet.create({
   calcLabel: { ...Typography.label, fontSize: 11, color: Colors.textSecondary, marginTop: 4 },
   calcSublabel: { ...Typography.caption, fontSize: 11, color: Colors.textMuted, marginTop: 2 },
   calcDivider: { width: 1, backgroundColor: Colors.border },
-  card: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, overflow: "hidden" },
+  card: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: "hidden",
+  },
   fieldWrap: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   fieldLabel: { ...Typography.caption, color: Colors.textSecondary, marginBottom: 4 },
   fieldRow: { flexDirection: "row", alignItems: "center" },
   fieldInput: { flex: 1, ...Typography.body, color: Colors.text, paddingVertical: 4 },
   fieldSuffix: { ...Typography.body, color: Colors.textMuted },
   divider: { height: 1, backgroundColor: Colors.border, marginLeft: Spacing.lg },
-  macroCard: { flexDirection: "row", backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg },
-  macroItem: { flex: 1, alignItems: "center" },
-  macroValue: { ...Typography.h4, color: Colors.text },
-  macroLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  saveBtn: { backgroundColor: Colors.greenDark, borderRadius: Radius.pill, paddingVertical: Spacing.lg, alignItems: "center", marginTop: Spacing.lg },
+  saveBtn: {
+    backgroundColor: Colors.greenDark,
+    borderRadius: Radius.pill,
+    paddingVertical: Spacing.lg,
+    alignItems: "center",
+    marginTop: Spacing.lg,
+  },
   saveBtnText: { ...Typography.body, fontWeight: "700", color: "#FFF" },
 });

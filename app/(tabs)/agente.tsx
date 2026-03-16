@@ -61,8 +61,8 @@ function buildSystemPrompt(
   const goalLabel =
     user.goal === "perder_gordura" ? "perda de gordura"
     : user.goal === "ganhar_massa" ? "ganho de massa muscular"
-    : user.goal === "so_acompanhar" ? "acompanhamento sem meta específica"
-    : "manutenção do peso";
+    : user.goal === "definir_corpo" ? "definição corporal com déficit leve"
+    : "recomposição corporal gradual";
 
   const hasMacros = !!(user.daily_kcal && user.protein_g && user.carbo_g && user.fat_g);
 

@@ -52,17 +52,17 @@ export default function OnboardingStep3Screen() {
         />
         <OptionCard
           emoji="⚡"
-          title="Secar e definir"
-          subtitle="Perder gordura mantendo o músculo"
-          selected={goal === "manter"}
-          onPress={() => setGoal("manter")}
+          title="Definir o corpo"
+          subtitle="Reduzir gordura preservando massa muscular"
+          selected={goal === "definir_corpo"}
+          onPress={() => setGoal("definir_corpo")}
         />
         <OptionCard
-          emoji="🏆"
-          title="Transformação completa"
-          subtitle="Menos gordura. Mais músculo."
-          selected={goal === "so_acompanhar"}
-          onPress={() => setGoal("so_acompanhar")}
+          emoji="🔄"
+          title="Recompôr o corpo"
+          subtitle="Perder gordura e ganhar músculo gradualmente"
+          selected={goal === "recomposicao"}
+          onPress={() => setGoal("recomposicao")}
         />
       </ScrollView>
 

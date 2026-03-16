@@ -6,18 +6,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
+  Image,
   PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ActivityModal } from "../../components/home/ActivityModal";
 import { HydrationModal } from "../../components/home/HydrationModal";
 import { StreakCelebrationModal } from "../../components/home/StreakCelebrationModal";
+import { DayCompleteCelebrationModal } from "../../components/home/DayCompleteCelebrationModal";
 import { Colors } from "../../constants/colors";
 import { useTheme } from "../../hooks/useTheme";
 import { Radius } from "../../constants/radius";
@@ -34,10 +37,12 @@ import {
   type MealType,
 } from "../../types/nutrition";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import { getTodayISO } from "../../utils/date";
 import { ProgressBar } from "../../components/ui";
 import type { WeeklyPlanStatus } from "../../stores/useWeeklyPlanStore";
 import { useIsPro } from "../../hooks/useUserPlan";
+import { useHomePressStore } from "../../stores/useHomePressStore";
 
 const MEAL_TIMES: Record<MealType, string> = {
   cafe: "07:30",
@@ -238,16 +243,15 @@ function AnimatedCard({
   );
 }
 
-/** Emojis por tipo de refeição (estilo Stitch) */
-const MEAL_EMOJI: Record<MealType, string> = {
-  cafe: "☕",
-  lanche_manha: "🍎",
-  almoco: "🍽️",
-  lanche: "🥪",
-  jantar: "🌙",
-  pre_treino: "💪",
-  pos_treino: "🥤",
-  extra: "🍴",
+const MEAL_IMAGES: Record<MealType, number> = {
+  cafe: require("../../assets/images/meals/meal-cafe.png"),
+  lanche_manha: require("../../assets/images/meals/meal-lanche-manha.png"),
+  almoco: require("../../assets/images/meals/meal-almoco.png"),
+  lanche: require("../../assets/images/meals/meal-lanche.png"),
+  jantar: require("../../assets/images/meals/meal-jantar.png"),
+  pre_treino: require("../../assets/images/meals/meal-pre-treino.png"),
+  pos_treino: require("../../assets/images/meals/meal-pos-treino.png"),
+  extra: require("../../assets/images/meals/meal-extra.png"),
 };
 
 const STREAK_CELEBRATION_THRESHOLD = 5;
@@ -255,13 +259,27 @@ const CALENDAR_SWIPE_THRESHOLD = 40;
 
 export default function HomeScreen() {
   const { C } = useTheme();
+  const router = useRouter();
   const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
   /** Quando não é null, o modal de celebração é exibido com esse valor (permite simular). */
   const [showCelebrationStreak, setShowCelebrationStreak] = useState<number | null>(null);
+  const [showDayComplete, setShowDayComplete] = useState(false);
+  const [completedDaysCount, setCompletedDaysCount] = useState(0);
   const [showHydrationModal, setShowHydrationModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => getTodayISO());
   const hasShownCelebrationThisSession = useRef(false);
+  const hasShownDayCompleteToday = useRef<string | null>(null);
+  const scrollRef = useRef<any>(null);
+  const homePressCount = useHomePressStore((s) => s.pressCount);
+
+  /** Ao tocar no tab "Hoje" estando já nele: volta ao topo e reseta para hoje */
+  useEffect(() => {
+    if (homePressCount === 0) return;
+    setSelectedCalendarDate(getTodayISO());
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [homePressCount]);
+
 
   const user = useUserStore((s) => s.user);
   const today = getTodayISO();
@@ -270,6 +288,7 @@ export default function HomeScreen() {
     streak,
     isLoading,
     loadForDate,
+    confirmMeal,
   } = useNutritionStore();
   
   const weeklyPlanStore = useWeeklyPlanStore();
@@ -287,6 +306,20 @@ export default function HomeScreen() {
       setShowCelebrationStreak(streak);
     }
   }, [streak, isLoading]);
+
+  // Detecta quando todas as refeições de HOJE são completadas
+  const todayPlannedMeals = weeklyPlanStore.getPlansForDate(today);
+  const todayAllComplete =
+    todayPlannedMeals.length > 0 &&
+    todayPlannedMeals.every((m) => m.foods.length > 0 && m.foods.every((f) => f.checked));
+
+  useEffect(() => {
+    if (todayAllComplete && hasShownDayCompleteToday.current !== today) {
+      hasShownDayCompleteToday.current = today;
+      setCompletedDaysCount((prev) => prev + 1);
+      setShowDayComplete(true);
+    }
+  }, [todayAllComplete, today]);
 
   const weekStart = useMemo(
     () => startOfWeek(new Date(selectedCalendarDate + "T12:00:00"), { weekStartsOn: 1 }),
@@ -357,8 +390,8 @@ export default function HomeScreen() {
     const carboGoal = user?.carbo_g ?? 0;
     const fatGoal = user?.fat_g ?? 0;
     return [
-      { label: "Proteína", value: Math.round(plannedCheckedTotals.protein_g), goal: proteinGoal, color: Colors.protein },
       { label: "Carbos", value: Math.round(plannedCheckedTotals.carbo_g), goal: carboGoal, color: Colors.carbo },
+      { label: "Proteína", value: Math.round(plannedCheckedTotals.protein_g), goal: proteinGoal, color: Colors.protein },
       { label: "Gordura", value: Math.round(plannedCheckedTotals.fat_g), goal: fatGoal, color: Colors.fat },
     ];
   }, [plannedCheckedTotals, user]);
@@ -474,6 +507,7 @@ export default function HomeScreen() {
   // Atividade
   const activityMinutes = useActivityStore((s) => s.getTotalMinutesForDate(todayForWater));
   const activityGoalMinutes = useActivityStore((s) => s.goalMinutesPerDay);
+  const activityKcalBurned = useActivityStore((s) => s.getTotalKcalBurnedForDate(todayForWater));
   const displayActivityMin = activityMinutes;
   const displayActivityGoal = activityGoalMinutes;
   const activityPct =
@@ -509,6 +543,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: C.background }]}>
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -516,28 +551,53 @@ export default function HomeScreen() {
         {/* Header — estilo Stitch: Bom dia, Nome 👋 + data */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {firstName.slice(0, 1).toUpperCase()}
-              </Text>
-            </View>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={() => router.push("/perfil/dados-corporais")}
+            >
+              {user?.avatar_url ? (
+                <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {firstName.slice(0, 1).toUpperCase()}
+                </Text>
+              )}
+            </TouchableOpacity>
             <View>
               <Text style={styles.greetingName}>
-                {getGreeting()}, {firstName} 👋
+                {getGreeting()}, {firstName}
               </Text>
               <Text style={styles.greetingLabel}>{getFormattedDate()}</Text>
             </View>
           </View>
-          <Pressable style={styles.notifButton}>
-            <Ionicons name="notifications-outline" size={22} color={Colors.text} />
-            <View style={styles.notifDot} />
-          </Pressable>
+          <View style={styles.headerRight}>
+            {completedDaysCount > 0 && (
+              <Pressable
+                style={styles.flameButton}
+                onPress={() => setShowDayComplete(true)}
+              >
+                <Text style={styles.flameEmoji}>🔥</Text>
+                <Text style={styles.flameCount}>{completedDaysCount}</Text>
+              </Pressable>
+            )}
+            <Pressable style={styles.notifButton}>
+              <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+              <View style={styles.notifDot} />
+            </Pressable>
+          </View>
         </View>
 
         <StreakCelebrationModal
           visible={showCelebrationStreak !== null}
           streak={showCelebrationStreak ?? 0}
           onClose={() => setShowCelebrationStreak(null)}
+        />
+
+        <DayCompleteCelebrationModal
+          visible={showDayComplete}
+          completedDays={completedDaysCount}
+          mealCount={todayPlannedMeals.length}
+          onClose={() => setShowDayComplete(false)}
         />
 
         <HydrationModal
@@ -585,16 +645,16 @@ export default function HomeScreen() {
 
           <View style={styles.macroRow}>
             {[
-              { ...macroGoals[0], labelCap: "PROTEÍNA" },
-              { ...macroGoals[1], labelCap: "CARBOS" },
-              { ...macroGoals[2], labelCap: "GORDURA" },
+              { ...macroGoals[0], labelCap: "Carbos", emoji: "🌾" },
+              { ...macroGoals[1], labelCap: "Proteína", emoji: "🥩" },
+              { ...macroGoals[2], labelCap: "Gorduras", emoji: "🥑" },
             ].map((m, index) => {
               const pct = m.goal > 0 ? Math.min(100, Math.round((m.value / m.goal) * 100)) : 0;
               return (
                 <React.Fragment key={m.label}>
                   {index > 0 && <View style={styles.macroDivider} />}
                   <View style={styles.macroItem}>
-                    <Text style={styles.macroLabel}>{m.labelCap}</Text>
+                    <Text style={styles.macroLabel}>{m.labelCap} <Text style={styles.macroEmoji}>{m.emoji}</Text></Text>
                     <Text style={styles.macroValue}>
                       {m.value}g <Text style={styles.macroGoal}>/ {m.goal}g</Text>
                     </Text>
@@ -608,10 +668,12 @@ export default function HomeScreen() {
           <View style={styles.consumptionFooter}>
             <View style={styles.gastasRow}>
               <Ionicons name="flame" size={14} color={Colors.carbo} />
-              <Text style={styles.gastasTextWhite}>Gastas: 0 kcal</Text>
+              <Text style={styles.gastasTextWhite}>
+                Gastas: {formatIntBR(activityKcalBurned)} kcal
+              </Text>
             </View>
             <Text style={styles.disponivelText}>
-              Disponível: +{formatIntBR(Math.max(0, displayKcalGoal - kcalConsumed))} kcal
+              Disponível: +{formatIntBR(Math.max(0, displayKcalGoal - kcalConsumed + activityKcalBurned))} kcal
             </Text>
           </View>
         </AnimatedCard>
@@ -624,18 +686,8 @@ export default function HomeScreen() {
           >
             <View style={styles.miniCardHeader}>
               <View style={styles.miniCardTitleRow}>
-                <Ionicons name="bicycle-outline" size={18} color={Colors.text} />
-                <Text style={styles.miniCardLabelCaps}>ATIVIDADE</Text>
+                <Text style={styles.miniCardLabelCaps}>Atividades 🏃</Text>
               </View>
-              <Pressable
-                style={styles.miniAddButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setShowActivityModal(true);
-                }}
-              >
-                <Ionicons name="add" size={14} color="#FFF" />
-              </Pressable>
             </View>
             <Text style={styles.miniCardValue}>
               {formatIntBR(displayActivityMin)} / {formatIntBR(displayActivityGoal)} min
@@ -649,18 +701,8 @@ export default function HomeScreen() {
           >
             <View style={styles.miniCardHeader}>
               <View style={styles.miniCardTitleRow}>
-                <Ionicons name="water-outline" size={18} color={Colors.text} />
-                <Text style={styles.miniCardLabelCaps}>HIDRATAÇÃO</Text>
+                <Text style={styles.miniCardLabelCaps}>Hidratação 💧</Text>
               </View>
-              <Pressable
-                style={styles.miniAddButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setShowHydrationModal(true);
-                }}
-              >
-                <Ionicons name="add" size={14} color="#FFF" />
-              </Pressable>
             </View>
             <Text style={styles.miniCardValue}>
               {displayWaterL.toFixed(1).replace(".", ",")} / {displayWaterGoal.toFixed(1).replace(".", ",")} L
@@ -678,6 +720,7 @@ export default function HomeScreen() {
             <View style={styles.calendarWeekRow}>
               {weekDays.map((d) => {
                 const iso = format(d, "yyyy-MM-dd");
+                const isToday = iso === format(new Date(), "yyyy-MM-dd");
                 const isSelected = iso === selectedCalendarDate;
                 const mealsForDate = weeklyPlanStore.getPlansForDate(iso);
                 const hasPlan = mealsForDate.length > 0;
@@ -694,12 +737,14 @@ export default function HomeScreen() {
                     meal.foods.some((food) => food.checked)
                   );
 
-                const status: "none" | "incomplete" | "complete" =
+                const status: "none" | "planned" | "incomplete" | "complete" =
                   allMealsComplete
                     ? "complete"
-                    : hasAnyChecked || hasPlan
+                    : hasAnyChecked
                       ? "incomplete"
-                      : "none";
+                      : hasPlan
+                        ? "planned"
+                        : "none";
 
                 const dayNum = format(d, "d");
                 const dayIndex = d.getDay();
@@ -711,18 +756,19 @@ export default function HomeScreen() {
                     style={({ pressed }) => [
                       styles.calendarDayCard,
                       status === "complete" && styles.calendarDayCardComplete,
-                      status === "incomplete" &&
-                        styles.calendarDayCardIncomplete,
+                      status === "planned" && styles.calendarDayCardPlanned,
+                      status === "incomplete" && styles.calendarDayCardIncomplete,
+                      isToday && styles.calendarDayCardToday,
                       isSelected && styles.calendarDayCardSelected,
                       pressed && styles.pressed,
                     ]}
                     onPress={() => setSelectedCalendarDate(iso)}
                   >
                     <View style={styles.calendarDayTop}>
-                      <Text style={styles.calendarDayAbbr}>{dayAbbr}</Text>
+                      <Text style={[styles.calendarDayAbbr, isToday && styles.calendarDayAbbrToday]}>{dayAbbr}</Text>
                     </View>
                     <View style={styles.calendarDayBottom}>
-                      <Text style={styles.calendarDayNum}>{dayNum}</Text>
+                      <Text style={[styles.calendarDayNum, isToday && styles.calendarDayNumToday]}>{dayNum}</Text>
                     </View>
                   </Pressable>
                 );
@@ -785,7 +831,12 @@ export default function HomeScreen() {
                   }
                 >
                   <View style={styles.mealHeaderLeft}>
-                    <Text style={styles.mealEmoji}>{MEAL_EMOJI[meal.type as MealType] ?? "🍴"}</Text>
+                    <View style={styles.mealImageWrapper}>
+                      <Image
+                        source={MEAL_IMAGES[meal.type as MealType] ?? MEAL_IMAGES.extra}
+                        style={styles.mealImage}
+                      />
+                    </View>
                     <View style={styles.mealInfo}>
                       <View style={styles.mealTitleRow}>
                         <Text style={styles.mealTitle} numberOfLines={1}>
@@ -900,6 +951,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.greenDark,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   avatarText: {
     fontFamily: Typography.h2.fontFamily,
@@ -913,6 +970,29 @@ const styles = StyleSheet.create({
   greetingName: {
     ...Typography.h4,
     color: Colors.text,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  flameButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: Colors.greenLight,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+  },
+  flameEmoji: {
+    fontSize: 16,
+  },
+  flameCount: {
+    ...Typography.caption,
+    fontWeight: "800",
+    color: Colors.greenDark,
+    fontSize: 13,
   },
   notifButton: {
     width: 40,
@@ -1038,8 +1118,12 @@ const styles = StyleSheet.create({
   },
   macroLabel: {
     ...Typography.label,
+    textTransform: "none",
     color: Colors.text,
     marginBottom: 4,
+  },
+  macroEmoji: {
+    fontSize: 11,
   },
   macroValue: {
     fontFamily: Typography.body.fontFamily,
@@ -1098,6 +1182,7 @@ const styles = StyleSheet.create({
   },
   miniCardLabelCaps: {
     ...Typography.label,
+    textTransform: "none",
     fontSize: 11,
     color: Colors.text,
   },
@@ -1159,14 +1244,31 @@ const styles = StyleSheet.create({
   },
   calendarDayCardSelected: {
     borderColor: Colors.primary,
+    borderWidth: 2,
   },
   calendarDayCardComplete: {
-    borderColor: Colors.success,
-    backgroundColor: Colors.fatBg,
+    borderColor: Colors.green,
+    borderWidth: 2,
+  },
+  calendarDayCardPlanned: {
+    borderColor: "#555555",
+    borderWidth: 2,
   },
   calendarDayCardIncomplete: {
     borderColor: Colors.error,
-    backgroundColor: Colors.errorBg,
+    borderWidth: 2,
+  },
+  calendarDayCardToday: {
+    backgroundColor: Colors.green,
+    borderColor: Colors.green,
+    borderWidth: 2,
+  },
+  calendarDayAbbrToday: {
+    color: "#000",
+  },
+  calendarDayNumToday: {
+    color: "#000",
+    fontWeight: "700",
   },
   calendarDayTop: {
     paddingTop: 6,

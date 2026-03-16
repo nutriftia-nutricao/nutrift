@@ -15,7 +15,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "O Nutrift precisa do microfone para você enviar mensagens de voz ao agente de nutrição."
+        "NSMicrophoneUsageDescription": "O Nutrift precisa do microfone para você enviar mensagens de voz ao agente de nutrição.",
+        "NSPhotoLibraryUsageDescription": "O Nutrift precisa acessar sua galeria para você escolher uma foto de perfil."
       }
     },
     "android": {
@@ -26,7 +27,9 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -35,7 +38,13 @@
     "plugins": [
       "expo-web-browser",
       "@react-native-community/datetimepicker",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O Nutrift precisa acessar sua galeria para você escolher uma foto de perfil."
+        }
+      ]
     ]
   }
 }

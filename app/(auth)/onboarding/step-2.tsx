@@ -75,6 +75,7 @@ export default function OnboardingStep2Screen() {
               unit="CM"
               majorStep={10}
               mediumStep={5}
+              decimalPlaces={1}
               onChange={setHeight}
             />
 
@@ -87,7 +88,7 @@ export default function OnboardingStep2Screen() {
               unit="KG"
               majorStep={10}
               mediumStep={5}
-              formatValue={(v) => v.toFixed(1)}
+              decimalPlaces={1}
               onChange={setWeight}
             />
 
@@ -100,6 +101,7 @@ export default function OnboardingStep2Screen() {
               unit="ANOS"
               majorStep={10}
               mediumStep={5}
+              decimalPlaces={0}
               onChange={setAge}
             />
 
@@ -112,7 +114,7 @@ export default function OnboardingStep2Screen() {
               unit="%"
               majorStep={10}
               mediumStep={5}
-              formatValue={(v) => v.toFixed(1)}
+              decimalPlaces={1}
               onChange={setBodyFatPct}
             />
           </View>

@@ -15,7 +15,7 @@ import { Colors } from "../../../constants/colors";
 import { Radius } from "../../../constants/radius";
 import { Spacing } from "../../../constants/spacing";
 import { Typography } from "../../../constants/typography";
-import { getSession, signUp } from "../../../services/auth";
+import { getSession, refreshSession, signUp } from "../../../services/auth";
 import { supabase } from "../../../services/supabase";
 import { fetchUserProfile } from "../../../services/user";
 import { useOnboardingStore } from "../../../stores/useOnboardingStore";
@@ -81,6 +81,7 @@ export default function OnboardingStep9Screen() {
     diet_type,
     restrictions,
     meals_per_day,
+    meals,
     liked_foods,
   } = useOnboardingStore();
 
@@ -124,7 +125,11 @@ export default function OnboardingStep9Screen() {
         userId = sessionUser!.id;
       } else {
         // Sem sessão ainda: cria conta agora usando e-mail/senha do register.
-        const { userId: newUserId, error: signUpError } = await signUp(email, password);
+        const { userId: newUserId, error: signUpError } = await signUp(
+          email,
+          password,
+          name.trim() || undefined
+        );
 
         if (signUpError) {
           const msg =
@@ -156,22 +161,31 @@ export default function OnboardingStep9Screen() {
         isExistingUser = false;
       }
 
-      // Confirma que há sessão válida antes de escrever no banco (RLS depende de auth.uid()).
-      // Em alguns dispositivos o storage pode demorar para reidratar após signUp/setSession.
-      const sessionCheck = await getSession();
-      const sessionUserId = sessionCheck.data.session?.user?.id ?? null;
+      // Confirma sessão válida antes de escrever no banco (RLS depende de auth.uid()).
+      // Inclui refresh para cobrir reidratação lenta / token antigo.
+      const readSessionUserId = async () => {
+        const check = await getSession();
+        return check.data.session?.user?.id ?? null;
+      };
+
+      let sessionUserId = await readSessionUserId();
+      if (sessionUserId !== userId) {
+        await refreshSession().catch(() => null);
+        sessionUserId = await readSessionUserId();
+      }
+
       if (sessionUserId !== userId) {
         await new Promise((r) => setTimeout(r, 400));
-        const retry = await getSession();
-        const retryUserId = retry.data.session?.user?.id ?? null;
-        if (retryUserId !== userId) {
-          Alert.alert(
-            "Sessão expirada",
-            "Não foi possível validar sua sessão para salvar seu perfil. Faça login novamente.",
-            [{ text: "OK", onPress: () => router.replace("/(auth)/login") }]
-          );
-          return;
-        }
+        sessionUserId = await readSessionUserId();
+      }
+
+      if (sessionUserId !== userId) {
+        Alert.alert(
+          "Sessão expirada",
+          "Não foi possível validar sua sessão para salvar seu perfil. Faça login novamente.",
+          [{ text: "OK", onPress: () => router.replace("/(auth)/login") }]
+        );
+        return;
       }
 
       const result = calcularNutricao({
@@ -204,10 +218,10 @@ export default function OnboardingStep9Screen() {
         workout_type,
         workout_time,
         target_weight,
+        target_body_fat_pct,
         weekly_pace,
         diet_type,
         restrictions,
-        plan: "free" as const,
         tmb: result.tmb,
         tdee: result.tdee,
         daily_kcal: result.meta,
@@ -217,61 +231,100 @@ export default function OnboardingStep9Screen() {
         hydration_ml: result.hydration_ml,
         target_date: target_date_iso,
         meals_per_day: meals_per_day ?? 3,
+        meals: meals ?? [],
         liked_foods: liked_foods ?? [],
         onboarding_completed: true,
       };
 
-      // Garante que sempre exista linha em public.users (casos em que o trigger ainda não criou o perfil).
-      const upsertPayload = {
-        id: userId,
-        ...profileData,
-      };
-      const payloadForUpsert: Record<string, unknown> = { ...upsertPayload };
+      // Preferimos update + insert por id (em vez de upsert) para evitar falha
+      // quando a policy de INSERT do ambiente bloqueia clientes autenticados.
+      const payloadForWrite: Record<string, unknown> = { ...profileData };
       const ignoredLegacyColumns: string[] = [];
-      let updateError: any = null;
+      let writeError: any = null;
+      let savedProfile = false;
 
       // Compatibilidade com bancos legados: remove dinamicamente colunas ausentes (PGRST204)
       // e tenta novamente sem quebrar a finalização do onboarding.
       for (let attempt = 0; attempt < 8; attempt += 1) {
-        const result = await supabase
+        const updateResult = await supabase
           .from("users")
-          .upsert(payloadForUpsert, { onConflict: "id" });
-        updateError = result.error;
-        if (!updateError) break;
+          .update(payloadForWrite)
+          .eq("id", userId)
+          .select("id")
+          .maybeSingle();
 
-        const missingColumn = extractMissingUsersColumnFromError(updateError);
-        if (!missingColumn || missingColumn === "id" || !(missingColumn in payloadForUpsert)) {
+        if (updateResult.error) {
+          writeError = updateResult.error;
+        } else if (updateResult.data?.id) {
+          savedProfile = true;
+          break;
+        } else {
+          const insertResult = await supabase
+            .from("users")
+            .insert({
+              id: userId,
+              ...payloadForWrite,
+            })
+            .select("id")
+            .maybeSingle();
+
+          if (!insertResult.error) {
+            savedProfile = true;
+            break;
+          }
+
+          // Corrida entre trigger e app: conflito de id -> tenta update novamente.
+          if ((insertResult.error as any).code === "23505") {
+            const retryUpdate = await supabase
+              .from("users")
+              .update(payloadForWrite)
+              .eq("id", userId)
+              .select("id")
+              .maybeSingle();
+            if (!retryUpdate.error) {
+              savedProfile = true;
+              break;
+            }
+            writeError = retryUpdate.error;
+          } else {
+            writeError = insertResult.error;
+          }
+        }
+
+        const missingColumn = extractMissingUsersColumnFromError(writeError);
+        if (!missingColumn || missingColumn === "id" || !(missingColumn in payloadForWrite)) {
           break;
         }
 
         ignoredLegacyColumns.push(missingColumn);
-        delete payloadForUpsert[missingColumn];
+        delete payloadForWrite[missingColumn];
+        writeError = null;
       }
 
-      if (updateError) {
-        console.error("[onboarding step-9] upsert users error:", {
-          code: (updateError as any).code,
-          message: updateError.message,
-          details: (updateError as any).details,
-          hint: (updateError as any).hint,
+      if (!savedProfile || writeError) {
+        console.error("[onboarding step-9] save users error:", {
+          code: (writeError as any)?.code,
+          message: writeError?.message,
+          details: (writeError as any)?.details,
+          hint: (writeError as any)?.hint,
         });
         Alert.alert(
           "Erro ao salvar perfil",
           // 23505 = unique violation (e-mail duplicado)
           // 42501 = RLS / permissão negada
-          (updateError as any).code === "23505"
+          (writeError as any)?.code === "23505"
             ? "Este e-mail já está cadastrado. Tente fazer login."
-            : (updateError as any).code === "42501"
-              ? "Sem permissão para salvar seu perfil (sessão inválida). Faça login e tente novamente."
+            : (writeError as any)?.code === "42501"
+              ? "Sem permissão para salvar no banco (RLS). Sua sessão está ativa, mas a policy da tabela users bloqueou a gravação."
               : __DEV__
-                ? `Não foi possível salvar seus dados.\n\n${(updateError as any).code ?? "—"}: ${updateError.message}`
-            : "Não foi possível salvar seus dados. Verifique a conexão e tente novamente."
+                ? `Não foi possível salvar seus dados.\n\n${(writeError as any)?.code ?? "—"}: ${writeError?.message ?? "erro desconhecido"}`
+                : "Não foi possível salvar seus dados. Verifique a conexão e tente novamente."
         );
         return;
       }
 
       if (ignoredLegacyColumns.length > 0) {
-        console.warn("[onboarding step-9] legacy columns ignored on upsert:", ignoredLegacyColumns);
+        console.warn("[onboarding step-9] legacy columns ignored on save:", ignoredLegacyColumns);
       }
 
       const freshProfile = await fetchUserProfile(userId);
@@ -286,6 +339,7 @@ export default function OnboardingStep9Screen() {
           }
         : {
         id: userId,
+        plan: "trial" as const,
         ...profileData,
         liked_foods: liked_foods ?? [],
         created_at: new Date().toISOString(),
@@ -295,8 +349,9 @@ export default function OnboardingStep9Screen() {
         useHydrationStore.getState().setWaterGoalL(user.hydration_ml / 1000);
       }
       if (!isExistingUser) clearCredentials();
+      useOnboardingStore.getState().reset();
       // Vai explicitamente para a tela "Hoje" (index das tabs)
-      router.replace("/(tabs)/index");
+      router.replace("/(tabs)");
     } catch (e) {
       console.error("handleStart onboarding:", e);
       Alert.alert(
